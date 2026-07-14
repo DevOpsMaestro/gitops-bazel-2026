@@ -13,7 +13,7 @@
   <rect width="1200" height="1296" fill="#FAFAFA"/>
 
   <!-- Title -->
-  <text x="600" y="20" text-anchor="middle" font-size="20" font-weight="700" fill="#0F172A">Kubernetes Deployment Process — homelab-gitops-k8s-2026</text>
+  <text x="600" y="20" text-anchor="middle" font-size="20" font-weight="700" fill="#0F172A">Kubernetes Deployment Process — gitops-bazel-2026</text>
   <text x="600" y="36" text-anchor="middle" font-size="11" fill="#475569">make bootstrap  →  fully running cluster with all components</text>
 
   <!-- ══════════════════════════════════════════════════════════════
@@ -107,7 +107,7 @@
 
   <rect x="20" y="648" width="570" height="78" rx="8" fill="white" stroke="#4F46E5" stroke-width="1.5"/>
   <text x="305" y="667" text-anchor="middle" font-size="11" font-weight="700" fill="#0F172A">flux bootstrap github</text>
-  <text x="305" y="682" text-anchor="middle" font-size="9" fill="#475569">owner: DevOpsMaestro  ·  repo: homelab-gitops-k8s-2026</text>
+  <text x="305" y="682" text-anchor="middle" font-size="9" fill="#475569">owner: DevOpsMaestro  ·  repo: gitops-bazel-2026</text>
   <text x="305" y="697" text-anchor="middle" font-size="9" fill="#475569">path: clusters/kind  ·  Flux v2.8.8 installed to flux-system namespace</text>
   <text x="305" y="712" text-anchor="middle" font-size="9" fill="#475569">Controllers: source, kustomize, helm, notification</text>
 

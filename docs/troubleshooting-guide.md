@@ -1219,7 +1219,7 @@ kubectl logs -n flux-system deploy/notification-controller | grep -i "error"
 
 ```bash
 # After a reconcile, check the commit SHA for pending/success/failure statuses
-gh api repos/DevOpsMaestro/homelab-gitops-k8s-2026/commits/$(git rev-parse HEAD)/statuses \
+gh api repos/DevOpsMaestro/gitops-bazel-2026/commits/$(git rev-parse HEAD)/statuses \
   | jq '.[0:3] | .[] | {state: .state, context: .context, updated_at: .updated_at}'
 ```
 

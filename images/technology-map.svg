@@ -5,7 +5,7 @@
   <rect width="1200" height="770" fill="#FAFAFA"/>
 
   <!-- ── Title ── -->
-  <text x="600" y="22" text-anchor="middle" font-size="20" font-weight="700" fill="#0F172A">Technology Map — homelab-gitops-k8s-2026</text>
+  <text x="600" y="22" text-anchor="middle" font-size="20" font-weight="700" fill="#0F172A">Technology Map — gitops-bazel-2026</text>
 
   <!-- ══════════════════════════════════════════════════════════════
        ROW 1  ·  CLUSTER INFRASTRUCTURE (blue, left)
