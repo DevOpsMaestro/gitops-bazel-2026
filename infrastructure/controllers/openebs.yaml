@@ -1,0 +1,113 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openebs
+  labels:
+    istio-injection: disabled
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: openebs
+  namespace: flux-system
+spec:
+  interval: 1h
+  driftDetection:
+    mode: enabled
+  dependsOn:
+    - name: cilium
+      namespace: flux-system
+  targetNamespace: openebs
+  install:
+    timeout: 10m
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  chart:
+    spec:
+      chart: openebs
+      version: "4.x"
+      sourceRef:
+        kind: HelmRepository
+        name: openebs
+        namespace: flux-system
+      interval: 24h
+  values:
+    # OpenEBS 4.x uses subcharts. For KinD, only localpv-provisioner is needed.
+    # loki/alloy/minio are part of the built-in observability stack added in 4.3+;
+    # this cluster has its own Loki stack in the observability namespace.
+    engines:
+      replicated:
+        mayastor:
+          enabled: false
+      local:
+        lvm:
+          enabled: false
+        zfs:
+          enabled: false
+    mayastor:
+      enabled: false
+    loki:
+      enabled: false
+    alloy:
+      enabled: false
+    localpv-provisioner:
+      enabled: true
+      hostpathClass:
+        enabled: true
+        isDefaultClass: true
+      analytics:
+        enabled: false
+---
+# ── openebs namespace ─────────────────────────────────────────────────────────
+# localpv-provisioner is a storage controller that watches PVC/PV objects via the
+# Kubernetes API and bind-mounts host paths. It has no network server component
+# and needs no ingress. Egress is limited to DNS and the API server.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: openebs
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: openebs
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apiserver-egress
+  namespace: openebs
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 6443

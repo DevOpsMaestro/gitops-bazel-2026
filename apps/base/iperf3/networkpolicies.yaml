@@ -1,0 +1,51 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: iperf3
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: iperf3
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# nginx (envoy-ingress namespace, hostNetwork: true) forwards raw TCP connections
+# to this pod on port 32111. Because nginx uses the node's network interface,
+# its source IP is the node IP — namespace-selector matching does not apply.
+# Allow all sources on this port (same pattern as contour/allow-envoy-http-ingress).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nginx-ingress
+  namespace: iperf3
+spec:
+  podSelector:
+    matchLabels:
+      app: iperf3-server
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 32111
+          protocol: TCP

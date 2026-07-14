@@ -1,0 +1,215 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubescape
+  labels:
+    istio-injection: disabled
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kubescape
+  namespace: flux-system
+spec:
+  interval: 1h
+  driftDetection:
+    mode: enabled
+  chart:
+    spec:
+      chart: kubescape-operator
+      version: "1.x"
+      sourceRef:
+        kind: HelmRepository
+        name: kubescape
+        namespace: flux-system
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  upgrade:
+    crds: CreateReplace
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  dependsOn:
+    - name: cilium
+      namespace: flux-system
+  targetNamespace: kubescape
+  values:
+    clusterName: flux-kind
+    capabilities:
+      configurationScan: enable
+      continuousScan: enable
+      prometheusExporter: enable
+      vulnerabilityScan: disable
+      nodeScan: disable
+      nodeSbomGeneration: disable
+      relevancy: disable
+      runtimeObservability: disable
+      networkPolicyService: disable
+      networkEventsStreaming: disable
+      nodeProfileService: disable
+      admissionController: disable
+      httpDetection: disable
+      seccompProfileService: disable
+      # Run without an ARMO cloud account. When disabled (the default), the
+      # operator attempts to submit scan results to api.armosec.io and logs a
+      # 400 "missing account id" error on every scan cycle because no account
+      # or accessKey is configured. Enable offline mode to suppress this.
+      kubescapeOffline: enable
+    # Known chart issue (kubescape-operator ≤1.40.x): the chart mounts an emptyDir
+    # volume with subPath: config.json at /home/nonroot/.kubescape/config.json.
+    # Kubernetes creates the subPath entry as a directory before any container
+    # starts, so the kubescape CLI binary finds a directory at that path instead
+    # of a writable file. This causes every scan cycle to fail with:
+    #   open /home/nonroot/.kubescape/config.json: is a directory
+    # and produces 0.00 compliance scores across all frameworks.
+    #
+    # Workaround (postRenderers below): remove the kubescape-volume emptyDir mount
+    # entirely. With the mount gone, the image's own /home/nonroot/.kubescape/
+    # directory is used, and the kubescape binary can create config.json as a
+    # real file. The constraint above is widened to 1.x so Flux picks up the
+    # upstream chart fix automatically when a corrected release is available, at
+    # which point the postRenderers block can be removed.
+    configurations:
+      prometheusAnnotations: disable
+  # Remove the broken emptyDir subPath mount for config.json. See comment above.
+  # Indices confirmed against kubescape-operator 1.40.2 Deployment spec:
+  #   containers[0].volumeMounts[1] → /home/nonroot/.kubescape/config.json (subPath: config.json)
+  #   volumes[3]                    → kubescape-volume (emptyDir)
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+              name: kubescape
+              namespace: kubescape
+            patch: |
+              - op: remove
+                path: /spec/template/spec/containers/0/volumeMounts/1
+              - op: remove
+                path: /spec/template/spec/volumes/3
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: kubescape
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: kubescape
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# Kubescape reads all resources across every namespace for posture scanning.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apiserver-egress
+  namespace: kubescape
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 6443
+---
+# Kubescape connects to ARMO cloud to pull compliance frameworks and upload scan
+# results. Allow HTTPS egress cluster-wide; no practical destination restriction.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-https-egress
+  namespace: kubescape
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: kubescape
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+---
+# Prometheus scrapes Kubescape metrics on port 8080.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kubescape-allow-prometheus-scrape-ingress
+  namespace: kubescape
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: 8080
+---
+# The kube-apiserver reaches the storage aggregated APIService from the
+# control-plane host network. Because the storage pod runs on a different node,
+# this is cross-node host traffic. Standard Kubernetes NetworkPolicy ipBlock
+# rules are not enforced by Cilium for host-to-pod cross-node traffic.
+# A CiliumNetworkPolicy with fromEntities is required:
+#   - kube-apiserver: the Kubernetes API server specifically (Cilium 1.12+)
+#   - remote-node: all host-network processes on other cluster nodes
+# Port 8443 is the container port; the Service maps 443 → 8443.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-apiserver-storage-ingress
+  namespace: kubescape
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: storage
+      app.kubernetes.io/name: kubescape-operator
+  ingress:
+    - fromEntities:
+        - kube-apiserver
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "8443"
+              protocol: TCP

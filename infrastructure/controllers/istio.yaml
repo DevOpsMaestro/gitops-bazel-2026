@@ -1,0 +1,228 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-system
+  labels:
+    istio-injection: disabled
+---
+# istio-base must be deployed before istiod.
+# The original had two conflicting Istio deployments: one at 1.26.0 in apps/base/istio
+# and another at 1.20.0 in infrastructure/istio — a six-minor-version split targeting
+# the same namespace. Both are replaced by this single authoritative definition.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: istio-base
+  namespace: flux-system
+spec:
+  interval: 1h
+  driftDetection:
+    # warn instead of enabled: istiod writes its CA bundle into the
+    # ValidatingWebhookConfiguration at runtime. The ignore rule target
+    # matcher does not resolve admissionregistration.k8s.io resources
+    # correctly in helm-controller v1.5.x, causing a permanent correction
+    # loop. warn mode retains drift visibility without attempting correction.
+    mode: warn
+  dependsOn:
+    - name: cilium
+      namespace: flux-system
+  targetNamespace: istio-system
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  chart:
+    spec:
+      chart: base
+      version: "1.30.x"
+      sourceRef:
+        kind: HelmRepository
+        name: istio
+        namespace: flux-system
+      interval: 24h
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: istiod
+  namespace: flux-system
+spec:
+  interval: 1h
+  driftDetection:
+    # warn instead of enabled: same reason as istio-base above.
+    mode: warn
+  targetNamespace: istio-system
+  dependsOn:
+    - name: istio-base
+      namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  chart:
+    spec:
+      chart: istiod
+      version: "1.30.x"
+      sourceRef:
+        kind: HelmRepository
+        name: istio
+        namespace: flux-system
+      interval: 24h
+  values:
+    telemetry:
+      enabled: true
+    pilot:
+      # 100% sampling — every request generates a trace. Appropriate for a
+      # learning cluster; lower to 1–10% in production to avoid trace volume costs.
+      traceSampling: 100.0
+      # Suppress info-level istiod logs. Valid: none, error, warn, info, debug.
+      logLevel: warning
+    # KinD has no Metrics Server so the HPA can never collect CPU data.
+    # Disable it to suppress FailedGetResourceMetric warnings.
+    autoscaleEnabled: false
+    global:
+      meshID: mesh1
+    meshConfig:
+      # Register the OTel Collector as a named extension provider so that
+      # Telemetry CRs can reference it by name (see apps/base/istio/telemetry.yaml).
+      extensionProviders:
+        - name: otel
+          opentelemetry:
+            service: observability-opentelemetry-collector.observability.svc.cluster.local
+            port: 4317
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: istio-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: istio-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# istiod watches all resources across the cluster for service discovery and
+# Envoy configuration generation.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apiserver-egress
+  namespace: istio-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 6443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: istio-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+---
+# Every Istio sidecar connects to istiod for:
+#   15010 — xDS (plaintext, used only if mTLS is not yet bootstrapped)
+#   15012 — xDS + certificate issuance (mTLS via Citadel)
+#   15014 — control-plane metrics
+# Sidecars run in all application namespaces, so we allow ingress from any pod
+# in any namespace rather than enumerating them.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: istiod-allow-sidecar-ingress
+  namespace: istio-system
+spec:
+  podSelector:
+    matchLabels:
+      app: istiod
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: 15010
+        - port: 15012
+        - port: 15014
+---
+# The Kubernetes API server calls the istiod sidecar injection webhook on
+# port 15017. No `from` selector = allow from any source (including API server).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: istiod-allow-webhook-ingress
+  namespace: istio-system
+spec:
+  podSelector:
+    matchLabels:
+      app: istiod
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 15017
+---
+# Prometheus (in observability) scrapes istiod metrics on port 15014.
+# Already covered by istiod-allow-sidecar-ingress above, but this explicit rule
+# documents the intent and makes the source namespace clear.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: istiod-allow-prometheus-scrape-ingress
+  namespace: istio-system
+spec:
+  podSelector:
+    matchLabels:
+      app: istiod
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: 15014

@@ -1,0 +1,140 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+
+  "flux": {
+    "managerFilePatterns": [
+      "/(^|/)clusters/.+\\.yaml$/",
+      "/(^|/)apps/.+\\.yaml$/",
+      "/(^|/)infrastructure/.+\\.yaml$/"
+    ]
+  },
+
+  "kubernetes": {
+    "managerFilePatterns": [
+      "/(^|/)apps/.+\\.yaml$/",
+      "/(^|/)infrastructure/.+\\.yaml$/"
+    ]
+  },
+
+  "ignorePaths": [
+    "apps/base/kyverno/tests/**"
+  ],
+
+  "customManagers": [
+    {
+      "description": "Track Cilium chart version in versions.env (used by bootstrap script pre-install)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^versions\\.env$/"
+      ],
+      "matchStrings": ["CILIUM_VERSION=(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "cilium",
+      "datasourceTemplate": "helm",
+      "registryUrlTemplate": "https://helm.cilium.io"
+    },
+    {
+      "description": "Track Istio chart version in versions.env",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^versions\\.env$/"
+      ],
+      "matchStrings": ["ISTIO_VERSION=(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "istiod",
+      "datasourceTemplate": "helm",
+      "registryUrlTemplate": "https://istio-release.storage.googleapis.com/charts"
+    },
+    {
+      "description": "Track Kubernetes node version in versions.env via kindest/node Docker image. Using the Docker datasource (not kubernetes/kubernetes github-releases) ensures Renovate only proposes versions that KinD has actually published as node images — Kubernetes tags a release before KinD builds the image, which caused v1.36.2 to be proposed before kindest/node:v1.36.2 existed.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^versions\\.env$/"
+      ],
+      "matchStrings": ["K8S_VER=v?(?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "kindest/node",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "description": "Track Kyverno CLI version pinned in CI workflow",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/validate\\.yaml$/"
+      ],
+      "matchStrings": ["KYVERNO_CLI_VERSION: (?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "kyverno/kyverno",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "description": "Track Kubescape CLI version in CI workflow and versions.env",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/validate\\.yaml$/",
+        "/^versions\\.env$/"
+      ],
+      "matchStrings": [
+        "KUBESCAPE_VERSION: (?<currentValue>[^\\n]+)",
+        "KUBESCAPE_VERSION=(?<currentValue>[^\\n]+)"
+      ],
+      "depNameTemplate": "kubescape/kubescape",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "description": "Track Gitleaks CLI version pinned in CI workflow",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/validate\\.yaml$/"
+      ],
+      "matchStrings": ["GITLEAKS_VERSION: (?<currentValue>[^\\n]+)"],
+      "depNameTemplate": "gitleaks/gitleaks",
+      "datasourceTemplate": "github-releases"
+    }
+  ],
+
+  "packageRules": [
+    {
+      "description": "Disable BOINC image — arm64v8 is an architecture alias, not a version tag",
+      "matchManagers": ["kubernetes"],
+      "matchPackageNames": ["boinc/client"],
+      "enabled": false
+    },
+    {
+      "description": "Disable httpbin — no versioned tags published; image is pinned by digest",
+      "matchManagers": ["kubernetes"],
+      "matchPackageNames": ["kennethreitz/httpbin"],
+      "enabled": false
+    },
+    {
+      "description": "Patch tier: group container image patch updates and automerge after CI passes",
+      "matchManagers": ["kubernetes"],
+      "matchUpdateTypes": ["patch"],
+      "groupName": "container-image-patch-updates",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "schedule": ["every weekday"]
+    },
+    {
+      "description": "Minor tier: group all Flux HelmRelease minor constraint bumps into one weekly PR for human review",
+      "matchManagers": ["flux"],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "flux-minor-updates",
+      "automerge": false,
+      "schedule": ["on monday"]
+    },
+    {
+      "description": "GitHub Actions: automerge patch and minor updates — SHA-pinned actions are low supply-chain risk",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "github-actions-updates",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Infrastructure version pins (versions.env, CI tool versions): group together, no automerge — these affect cluster bootstrap and node version",
+      "matchManagers": ["custom.regex"],
+      "groupName": "infrastructure-version-pins",
+      "automerge": false
+    }
+  ]
+}

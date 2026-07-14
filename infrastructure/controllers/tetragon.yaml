@@ -1,0 +1,180 @@
+---
+# Tetragon is a Cilium project providing eBPF-based security observability.
+# It runs as a DaemonSet on every node, tracing process execution, network
+# connections, and file access with full Kubernetes pod/namespace context.
+# Injection disabled: Tetragon is a low-level eBPF agent, not a mesh workload.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tetragon
+  labels:
+    istio-injection: disabled
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: tetragon
+  namespace: flux-system
+spec:
+  interval: 1h
+  driftDetection:
+    mode: enabled
+  targetNamespace: tetragon
+  dependsOn:
+    - name: cilium
+      namespace: flux-system
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  chart:
+    spec:
+      chart: tetragon
+      version: "1.x"
+      sourceRef:
+        kind: HelmRepository
+        name: cilium
+        namespace: flux-system
+      interval: 24h
+  values:
+    tetragon:
+      # Suppress info-level agent logs. Valid: trace, debug, info, warn, error, fatal, panic.
+      logLevel: warn
+      # Disable the policy filter to suppress "failed to find cgroup id. Skipping
+      # container." warnings for ephemeral Trivy scan job pods. The policy filter
+      # maps TracingPolicy label selectors to containers via cgroup IDs; when a
+      # scan pod terminates before the cgroup is resolved, a warning is logged.
+      # Our TracingPolicies apply to all pods without label filtering, so disabling
+      # this feature loses no security coverage.
+      enablePolicyFilter: false
+      prometheus:
+        enabled: true
+        # ServiceMonitor CRD (monitoring.coreos.com/v1) lives in the apps layer
+        # which depends on this infrastructure layer — circular dependency.
+        # Tetragon metrics are scraped via additionalScrapeConfigs in
+        # apps/base/prometheus/helmrelease.yaml instead.
+        serviceMonitor:
+          enabled: false
+      # Export events as JSON to stdout — visible via:
+      #   kubectl logs -n tetragon ds/tetragon -c export-stdout
+      export:
+        stdout:
+          enabled: true
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 100m
+          memory: 512Mi
+    # export.resources controls the export-stdout sidecar container (chart key is
+    # top-level, separate from tetragon.resources which covers the main agent).
+    # Without this the sidecar has no limits and fails the require-resource-limits
+    # Kyverno policy at admission time whenever the DaemonSet pod restarts.
+    export:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          cpu: 50m
+          memory: 32Mi
+    tetragonOperator:
+      prometheus:
+        enabled: true
+        serviceMonitor:
+          enabled: false
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: tetragon
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: tetragon
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# Tetragon DaemonSet uses the Kubernetes API for pod/namespace enrichment of eBPF events.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apiserver-egress
+  namespace: tetragon
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 6443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: tetragon
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+---
+# Prometheus scrapes Tetragon on port 2112 and the Tetragon Operator on port 2113.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tetragon-allow-prometheus-scrape-ingress
+  namespace: tetragon
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: 2112
+        - port: 2113

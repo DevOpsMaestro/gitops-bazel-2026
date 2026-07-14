@@ -1,0 +1,11 @@
+---
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Provider
+metadata:
+  name: github
+  namespace: flux-system
+spec:
+  type: github
+  address: https://github.com/DevOpsMaestro/homelab-gitops-k8s-2026
+  secretRef:
+    name: github-token

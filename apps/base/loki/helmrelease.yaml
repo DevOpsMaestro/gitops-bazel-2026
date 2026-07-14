@@ -1,0 +1,154 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: loki
+  namespace: flux-system
+spec:
+  interval: 1h
+  driftDetection:
+    mode: enabled
+  targetNamespace: observability
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  chart:
+    spec:
+      chart: loki
+      version: "7.x"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: flux-system
+      interval: 24h
+  values:
+    deploymentMode: SingleBinary
+
+    loki:
+      auth_enabled: false
+      commonConfig:
+        replication_factor: 1
+      storage:
+        type: filesystem
+      server:
+        log_level: warn
+      # Override the chart-generated memberlist.join_members with an empty list.
+      # The chart always generates a join_members entry pointing to the headless
+      # memberlist Service, even with replicas=1. During a Helm upgrade the
+      # StatefulSet pod is replaced: the old pod terminates, the headless Service
+      # briefly has no ready endpoints, and Loki's memberlist fast-join fails with
+      # "no such host". An empty join_members removes this DNS dependency entirely;
+      # the memberlist subsystem is still initialized but it does not attempt to
+      # contact any remote nodes, so startup never blocks on DNS.
+      memberlist:
+        join_members: []
+      # Switch ring KV stores to inmemory for components that support it in
+      # Loki 3.6.x. In a single-replica deployment the memberlist ring loses its
+      # one member after Mac sleep (the heartbeat pauses for the length of the
+      # sleep, exceeding the 10-minute forget_period), leaving every component
+      # with 0 healthy instances. The inmemory store lives entirely in-process
+      # and never times out between the components that share the same binary.
+      #
+      # compactor.ring and query_scheduler.ring are intentionally omitted —
+      # those structs do not have a ring field in Loki 3.6.x and cause a
+      # config-parse error at startup ("field ring not found in type ...").
+      ingester:
+        lifecycler:
+          ring:
+            kvstore:
+              store: inmemory
+            replication_factor: 1
+      distributor:
+        ring:
+          kvstore:
+            store: inmemory
+      ruler:
+        ring:
+          kvstore:
+            store: inmemory
+      index_gateway:
+        ring:
+          kvstore:
+            store: inmemory
+      schemaConfig:
+        configs:
+          - from: "2024-04-01"
+            object_store: filesystem
+            store: tsdb
+            schema: v13
+            index:
+              prefix: index_
+              period: 24h
+      limits_config:
+        retention_period: 168h   # 7 days
+        # After a Mac sleep the host clock pauses; when the machine wakes, all
+        # log shippers flush their buffered output at once. The default
+        # per_stream_rate_limit_burst (default ~4 MB) is too small to absorb
+        # this burst and Loki silently drops the overflow with HTTP 429.
+        # 20 MB provides enough headroom for a typical multi-minute sleep.
+        per_stream_rate_limit_burst: 20MB
+
+    singleBinary:
+      replicas: 1
+      podAnnotations:
+        # The loki-sc-rules init container (kiwigrid/k8s-sidecar) triggers a
+        # FATAL Trivy scan error during layer analysis: the scanner cannot create
+        # temp files inside a nested subdirectory of /tmp for this specific image.
+        # Skipping this container eliminates the error; the main loki container
+        # is still scanned. The sidecar only synchronizes Grafana rule ConfigMaps
+        # into the Loki filesystem; it carries no application secrets.
+        trivy-operator.aquasecurity.github.io/skip-containers: loki-sc-rules
+      persistence:
+        storageClass: openebs-hostpath
+        size: 5Gi
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+    # Disable microservices-mode components (SingleBinary handles everything)
+    backend:
+      replicas: 0
+    read:
+      replicas: 0
+    write:
+      replicas: 0
+
+    # Disable MinIO — using filesystem storage
+    minio:
+      enabled: false
+
+    # Disable gateway — Grafana and Promtail connect directly on port 3100
+    gateway:
+      enabled: false
+
+    # Disable memcached StatefulSets — not needed for SingleBinary + filesystem.
+    # The chart deploys these by default but the worker nodes in a KinD cluster
+    # don't have enough spare memory to schedule them, and Loki's built-in
+    # in-memory cache is sufficient for a homelab workload.
+    chunksCache:
+      enabled: false
+    resultsCache:
+      enabled: false
+
+    # Disable the canary DaemonSet — it exists to test write/read round-trips
+    # in distributed deployments; not useful in SingleBinary mode.
+    lokiCanary:
+      enabled: false
+
+    # Disable the Helm test hook — the chart's validate.yaml enforces that
+    # test.enabled requires lokiCanary.enabled, so both must be toggled off.
+    test:
+      enabled: false
+

@@ -1,0 +1,129 @@
+---
+# Grafana Tempo — distributed trace backend (single-binary mode).
+#
+# Role in the observability stack:
+#   OTel Collector → (OTLP gRPC 4317) → Tempo (stores traces on PVC)
+#   Grafana        → (HTTP 3100)       → Tempo (queries traces)
+#
+# Single-binary mode is appropriate for a single-node learning cluster.
+# Switch to tempo-distributed for production HA deployments.
+#
+# No Istio sidecar: Tempo receives plain-text OTLP from the OTel Collector
+# (also no sidecar) and serves plain-text HTTP to Grafana. Grafana's Envoy
+# proxy auto-detects the destination has no sidecar and sends plain text,
+# so no PeerAuthentication exception is needed.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: tempo
+  namespace: flux-system
+spec:
+  interval: 1h
+  driftDetection:
+    mode: enabled
+  targetNamespace: observability
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  chart:
+    spec:
+      chart: tempo
+      version: "1.x"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: flux-system
+      interval: 24h
+  values:
+    podLabels:
+      sidecar.istio.io/inject: "false"
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 300m
+        memory: 256Mi
+
+    persistence:
+      enabled: true
+      storageClassName: openebs-hostpath
+      size: 10Gi
+
+    tempo:
+      # Disable anonymous usage reporting.
+      reportingEnabled: false
+      server:
+        log_level: warn
+
+      # Receiver configuration — accept OTLP gRPC and HTTP from the OTel Collector.
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+
+      storage:
+        trace:
+          backend: local
+          local:
+            path: /var/tempo/traces
+          wal:
+            path: /var/tempo/wal
+
+      # Retention: keep traces for 24 hours. Adjust upward once you understand
+      # the storage growth rate for your trace volume.
+      retention: 24h
+
+      # Switch the ingester ring from memberlist to inmemory. In a single-replica
+      # deployment the memberlist ring loses its member after Mac sleep, leaving
+      # the distributor with 0 live ingesters and dropping all incoming traces.
+      ingester:
+        lifecycler:
+          ring:
+            kvstore:
+              store: inmemory
+            replication_factor: 1
+
+      # Enable the metrics generator so Tempo produces RED metrics (request rate,
+      # error rate, duration) from ingested traces and writes them to Prometheus
+      # via remote_write. This activates the service-graphs and span-metrics
+      # processors; the local_blocks processor is omitted (requires flush_to_storage
+      # which adds I/O on a resource-limited KinD cluster).
+      # Prometheus must have enableRemoteWriteReceiver: true (set in the
+      # kube-prometheus-stack HelmRelease) to accept the push at /api/v1/write.
+      metricsGenerator:
+        enabled: true
+        remoteWriteUrl: "http://observability-kube-prometh-prometheus.observability.svc.cluster.local:9090/api/v1/write"
+        processor:
+          service_graphs:
+            wait: 10s
+            max_items: 10000
+          span_metrics:
+            enable_target_info: true
+        storage:
+          # Write metrics WAL to the same PVC used for traces; avoids needing a
+          # second persistent volume and keeps all Tempo state in one place.
+          path: /var/tempo/metrics-generator/wal
+        traces_storage:
+          path: /var/tempo/metrics-generator/traces
+
+      # Enable processors for the default tenant so the generator actually
+      # produces output. Without this block the generator starts but emits nothing.
+      overrides:
+        defaults:
+          metrics_generator:
+            processors:
+              - service-graphs
+              - span-metrics

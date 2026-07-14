@@ -1,0 +1,52 @@
+---
+# Contour HTTPProxy CRs — one per virtualhost.
+# Each resource lives in the namespace of the Service it routes to, following
+# the same co-location pattern Envoy Gateway used for its HTTPRoutes.
+#
+# Traffic path (HTTP):
+#   localhost:8080 → KinD extraPortMapping → nginx (port 8888, hostNetwork)
+#   → contour-contour-envoy.contour:80 → Contour xDS match → backend Service
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: httpbin
+  namespace: demo
+spec:
+  virtualhost:
+    fqdn: httpbin-contour.local
+  routes:
+    - conditions:
+        - prefix: /
+      services:
+        - name: httpbin
+          port: 80
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  virtualhost:
+    fqdn: grafana.local
+  routes:
+    - conditions:
+        - prefix: /
+      services:
+        - name: observability-grafana
+          port: 80
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: prometheus
+  namespace: observability
+spec:
+  virtualhost:
+    fqdn: prometheus.local
+  routes:
+    - conditions:
+        - prefix: /
+      services:
+        - name: observability-kube-prometh-prometheus
+          port: 9090

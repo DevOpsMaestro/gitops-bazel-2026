@@ -1,0 +1,177 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: grafana
+  namespace: flux-system
+spec:
+  interval: 1h
+  driftDetection:
+    mode: enabled
+  targetNamespace: observability
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: flux-system
+    - name: loki
+      namespace: flux-system
+    - name: tempo
+      namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  chart:
+    spec:
+      chart: grafana
+      version: "10.x"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: flux-system
+      interval: 24h
+  valuesFrom:
+    - kind: Secret
+      name: grafana-admin-secret
+      valuesKey: admin-user
+      targetPath: adminUser
+    - kind: Secret
+      name: grafana-admin-secret
+      valuesKey: admin-password
+      targetPath: adminPassword
+  values:
+    # Without a stable secret_key, Grafana invalidates all sessions and
+    # re-encrypts stored datasource passwords on every pod restart. The key
+    # is stored in a cluster Secret (not in git) so it survives rebuilds.
+    # Create it once: make grafana-secret  (idempotent, run after bootstrap)
+    envValueFrom:
+      GF_SECURITY_SECRET_KEY:
+        secretKeyRef:
+          name: grafana-secret-key
+          key: secret-key
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 300m
+        memory: 512Mi
+    # The grafana chart injects a sidecar container that watches ConfigMaps for
+    # dashboard and datasource changes. Its resources are separate from the main
+    # Grafana container and must be set explicitly.
+    sidecar:
+      resources:
+        requests:
+          cpu: 25m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+    service:
+      portName: http
+    grafana.ini:
+      analytics:
+        check_for_updates: false
+        reporting_enabled: false
+      # Redirect grafana.com outbound traffic to localhost. In a no-egress KinD
+      # environment grafana.com is unreachable, so the angular pattern updater,
+      # plugin installer, and public-key retriever all time out at startup and
+      # log errors. Setting grafana_com.url to an unrouteable loopback address
+      # causes these HTTP requests to fail immediately (connection refused) rather
+      # than waiting for a 30-second timeout, removing the slow startup noise.
+      grafana_com:
+        url: "http://127.0.0.1:1"
+      plugins:
+        allow_loading_unsigned_plugins: ""
+        # Grafana 12 preinstalls four "Drilldown" apps (exploretraces,
+        # metricsdrilldown, lokiexplore, pyroscope) from grafana.com on every
+        # pod start. KinD pods have no internet egress, so each attempt fails
+        # with a timeout and logs an error. Disable the background installer
+        # and the two other grafana.com callbacks that produce noise.
+        preinstall_disabled: "true"
+        angular_detection_enabled: "false"
+        public_key_retrieval_disabled: "true"
+      dashboards:
+        default_home_dashboard_path: /var/lib/grafana/dashboards/kubernetes/node-exporter-full.json
+      log:
+        level: warn
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+          - name: Prometheus
+            type: prometheus
+            uid: prometheus
+            url: http://observability-kube-prometh-prometheus.observability.svc.cluster.local:9090
+            isDefault: true
+          - name: Loki
+            type: loki
+            uid: loki
+            url: http://observability-loki.observability.svc.cluster.local:3100
+            isDefault: false
+          - name: Tempo
+            type: tempo
+            uid: tempo
+            url: http://observability-tempo.observability.svc.cluster.local:3200
+            isDefault: false
+            jsonData:
+              # Correlate traces → logs: jump from a span to Loki logs at the same timestamp.
+              tracesToLogsV2:
+                datasourceUid: loki
+                filterByTraceID: true
+              # Correlate traces → metrics: jump from a service in a trace to Prometheus.
+              tracesToMetrics:
+                datasourceUid: prometheus
+              # Enable trace search via Loki derived fields.
+              lokiSearch:
+                datasourceUid: loki
+              # Render service dependency graph from trace data.
+              nodeGraph:
+                enabled: true
+              # Show service map in the Tempo explore view using Prometheus metrics.
+              serviceMap:
+                datasourceUid: prometheus
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+          - name: custom
+            orgId: 1
+            folder: ""
+            type: file
+            disableDeletion: false
+            editable: true
+            options:
+              path: /var/lib/grafana/dashboards/custom
+          - name: cilium
+            orgId: 1
+            folder: ""
+            type: file
+            disableDeletion: false
+            editable: true
+            options:
+              path: /var/lib/grafana/dashboards/cilium
+          - name: istio
+            orgId: 1
+            folder: ""
+            type: file
+            disableDeletion: false
+            editable: true
+            options:
+              path: /var/lib/grafana/dashboards/istio
+          - name: kubernetes
+            orgId: 1
+            folder: ""
+            type: file
+            disableDeletion: false
+            editable: true
+            options:
+              path: /var/lib/grafana/dashboards/kubernetes
+    dashboardsConfigMaps:
+      custom: grafana-dashboards-custom
+      cilium: grafana-dashboards-cilium
+      istio: grafana-dashboards-istio
+      kubernetes: grafana-dashboards-kubernetes

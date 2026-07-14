@@ -1,0 +1,254 @@
+---
+# Trivy Operator runs in-cluster vulnerability scanning against every container
+# image in use. It generates VulnerabilityReport CRDs (one per workload) and
+# exposes Prometheus metrics so Grafana can surface CVE counts by severity.
+#
+# This complements Kubescape (posture/compliance) — Kubescape catches
+# misconfigurations; Trivy catches known CVEs in image layers.
+#
+# Injection disabled: Trivy Operator creates ephemeral scan Job pods that pull
+# the vulnerability DB from ghcr.io. Istio sidecar injection in those Jobs adds
+# unnecessary complexity and can break outbound HTTPS to the registry.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trivy-system
+  labels:
+    istio-injection: disabled
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: trivy-operator
+  namespace: flux-system
+spec:
+  interval: 1h
+  driftDetection:
+    mode: enabled
+  targetNamespace: trivy-system
+  dependsOn:
+    - name: cilium
+      namespace: flux-system
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  chart:
+    spec:
+      chart: trivy-operator
+      version: "0.x"
+      sourceRef:
+        kind: HelmRepository
+        name: aquasecurity
+        namespace: flux-system
+      interval: 24h
+  values:
+    # Resources for the operator container itself (top-level key in this chart).
+    # Kyverno enforce policy (require-resource-limits) applies to trivy-system.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+    trivy:
+      # Only report CVEs that have a fix available — unfixed CVEs produce noise
+      # with no actionable remediation path.
+      ignoreUnfixed: true
+
+      # --slow was deprecated in Trivy in favour of --parallel. Setting slow: false
+      # stops the operator from injecting the deprecated flag into scan job containers;
+      # parallel: 1 preserves the same low-resource sequential behaviour.
+      slow: false
+      parallel: 1
+
+      # Resources for the scanner container inside each ephemeral scan Job pod.
+      # ClientServer mode offloads DB lookups to the server, but each container
+      # still pulls the image and extracts layers locally. Large images (Cilium,
+      # Envoy) OOMKill at 256Mi — 512Mi accommodates the largest images in the stack.
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+      server:
+        # Resources for the built-in Trivy DB server StatefulSet pod.
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+
+        # Kyverno enforce policies (disallow-privilege-escalation, require-resource-limits)
+        # apply to all pods in trivy-system, including the trivy-server StatefulSet.
+        podSecurityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop: [ALL]
+
+    operator:
+      # Bind metrics on :8080 — scraped via additionalScrapeConfigs in
+      # apps/base/prometheus/helmrelease.yaml (ServiceMonitor avoided to
+      # break the same circular dependency as other infrastructure tools).
+      metricsBindAddress: ":8080"
+
+      # Disable infrastructure assessment scanning — the node-collector
+      # Deployment it creates has cloud-node affinity rules that never
+      # match KinD worker nodes, leaving a pod permanently Pending.
+      infraAssessmentScannerEnabled: false
+
+      # Spin up a shared Trivy DB server pod. Scan job containers connect to
+      # it as lightweight clients instead of each initializing their own local
+      # DB copy. Eliminates cache lock contention between containers in the
+      # same scan Job pod (the root cause of the startup burst errors).
+      builtInTrivyServer: true
+
+      # Limit parallel scan Jobs to 2 — still useful for resource management
+      # even in ClientServer mode.
+      scanJobsConcurrentLimit: 2
+
+    # Security context for the operator container.
+    # Kyverno enforce policy (disallow-privilege-escalation) applies.
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      runAsUser: 1000
+      capabilities:
+        drop: [ALL]
+
+    # Security context applied to containers in ephemeral scan Job pods.
+    scanJobPodTemplateContainerSecurityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      capabilities:
+        drop: [ALL]
+
+    # Mount a writable emptyDir at /tmp in every scan Job pod.
+    # Trivy creates temporary directories under /tmp during image scanning;
+    # if the path does not exist in the container image the scan aborts with
+    # "unable to create temporary directory: stat /tmp/trivy-N: no such file
+    # or directory". An emptyDir provides a fresh, writable /tmp on every pod.
+    scanJobPodTemplateVolumes:
+      - name: tmp
+        emptyDir: {}
+    scanJobPodTemplateVolumeMounts:
+      - name: tmp
+        mountPath: /tmp
+
+    # Disable ServiceMonitor — use additionalScrapeConfigs instead.
+    serviceMonitor:
+      enabled: false
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: trivy-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: trivy-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# Trivy Operator lists workloads and reads image references across all namespaces.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apiserver-egress
+  namespace: trivy-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 6443
+---
+# Ephemeral scan Jobs pull the Trivy vulnerability database from ghcr.io and
+# aquasecurity's GitHub releases. No practical destination restriction is possible
+# for internet registries; allow HTTPS egress cluster-wide.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-https-egress
+  namespace: trivy-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: trivy-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+---
+# Prometheus (in observability) scrapes Trivy Operator metrics on port 8080.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trivy-allow-prometheus-scrape-ingress
+  namespace: trivy-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: 8080

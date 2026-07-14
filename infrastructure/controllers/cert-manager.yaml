@@ -1,0 +1,289 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+  labels:
+    toolkit.fluxcd.io/tenant: homelab-team
+    istio-injection: disabled
+---
+# Step 1: Install CRDs first as a standalone HelmRelease.
+# cert-manager publishes a dedicated CRD-only chart. Installing it separately
+# guarantees the CRDs are fully registered before the controller (and the
+# startupapicheck job) attempt to use them — eliminating the race condition
+# that causes the "CRDs are not yet installed" loop.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager-crds
+  namespace: flux-system
+spec:
+  interval: 1h
+  driftDetection:
+    mode: enabled
+  dependsOn:
+    - name: cilium
+      namespace: flux-system
+  targetNamespace: cert-manager
+  install:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  chart:
+    spec:
+      chart: cert-manager
+      version: "1.20.x"
+      sourceRef:
+        kind: HelmRepository
+        name: cert-manager
+        namespace: flux-system
+      interval: 24h
+  values:
+    # Install CRDs only — no controller, no webhook, no startupapicheck
+    installCRDs: true
+    startupapicheck:
+      enabled: false
+    cainjector:
+      enabled: false
+    replicaCount: 0
+    webhook:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Service
+              name: cert-manager-cert-manager-crds-webhook
+            patch: |-
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: cert-manager-cert-manager-crds-webhook
+              spec:
+                ports:
+                  - name: http-metrics
+                    port: 9402
+---
+# Step 2: Install the controller only after CRDs are confirmed present.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: flux-system
+spec:
+  interval: 1h
+  driftDetection:
+    mode: enabled
+  targetNamespace: cert-manager
+  dependsOn:
+    - name: cert-manager-crds
+      namespace: flux-system
+  install:
+    # Skip crds here — already handled by cert-manager-crds above
+    crds: Skip
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  upgrade:
+    crds: Skip
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  chart:
+    spec:
+      chart: cert-manager
+      version: "1.20.x"
+      sourceRef:
+        kind: HelmRepository
+        name: cert-manager
+        namespace: flux-system
+      interval: 24h
+  values:
+    # Suppress info-level controller logs. cert-manager uses klog (integer verbosity):
+    # 0 = error/warning, 1 = info, 2+ = debug. Default is 2.
+    global:
+      logLevel: 1
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+    webhook:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+    cainjector:
+      enabled: true
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+    startupapicheck:
+      enabled: true
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 50m
+          memory: 64Mi
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Service
+              name: cert-manager-cert-manager-webhook
+            patch: |-
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: cert-manager-cert-manager-webhook
+              spec:
+                ports:
+                  - name: http-metrics
+                    port: 9402
+          # cert-manager's clockHealth liveness check compares monotonic vs wall clock
+          # with a 5-minute tolerance. Docker Desktop VMs pause on Mac sleep, freezing
+          # the monotonic clock while the wall clock advances — every sleep > 5m trips
+          # the check and kubelet restarts the controller. Excluding clockHealth keeps
+          # the leaderElection check (and any future checks) while dropping the one that
+          # is structurally broken on any VM-based dev cluster.
+          - target:
+              kind: Deployment
+              name: cert-manager-cert-manager
+            patch: |-
+              - op: replace
+                path: /spec/template/spec/containers/0/livenessProbe/httpGet/path
+                value: /livez?exclude=clockHealth
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: cert-manager
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: cert-manager
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apiserver-egress
+  namespace: cert-manager
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 6443
+---
+# cert-manager controller, cainjector, and webhook communicate internally.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: cert-manager
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+---
+# The Kubernetes API server calls the cert-manager webhook on container port 10250
+# for CRD validation and mutation. No `from` selector = allow from any source
+# (including the control-plane API server which has no namespace).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cert-manager-allow-webhook-ingress
+  namespace: cert-manager
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: webhook
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 10250
+---
+# Prometheus (in observability) scrapes cert-manager metrics on port 9402.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cert-manager-allow-prometheus-scrape-ingress
+  namespace: cert-manager
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: 9402
+---
+# cert-manager needs HTTPS egress to reach ACME providers (Let's Encrypt),
+# external CAs, and DNS provider APIs for DNS-01 challenges.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cert-manager-allow-https-egress
+  namespace: cert-manager
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 443

@@ -1,0 +1,156 @@
+---
+# Allow nodeport-proxy to receive from anywhere on the node network (hostNetwork)
+# and egress to Contour's Envoy DaemonSet and the iperf3 Service. This
+# NetworkPolicy satisfies Kubescape's "Ingress and Egress blocked" control;
+# the pod uses hostNetwork so it is on the node's network interface, not the
+# pod overlay network.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nodeport-proxy-netpol
+  namespace: envoy-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: nodeport-proxy
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - {} # node-network proxy — any host may connect on ports 8888 / 9111
+  egress:
+    - {} # must reach Contour and iperf3 ClusterIPs across the pod network
+---
+# KinD-specific ingress proxy — required because Cilium kube-proxy replacement
+# uses BPF socket programs that block userspace bind() on the NodePort range
+# (30000-32767). KinD's extraPortMappings therefore use containerPort: 8888
+# and containerPort: 9111 (both outside that range) so this DaemonSet can
+# actually bind and listen.
+#
+# HTTP traffic flow:
+#   localhost:8080  →  KinD extraPortMapping containerPort: 8888
+#   control-plane:8888  →  nginx (hostNetwork: true)
+#   contour-contour-envoy.contour.svc.cluster.local:80  →  Contour Envoy data plane
+#   HTTPProxy match (grafana.local / prometheus.local / httpbin-contour.local)  →  backend
+#
+# TCP traffic flow (iperf3, if enabled):
+#   localhost:32111  →  KinD extraPortMapping containerPort: 9111
+#   control-plane:9111  →  nginx stream block (hostNetwork: true)
+#   iperf3.iperf3.svc.cluster.local:32111  →  iperf3 server pod
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nodeport-proxy-conf
+  namespace: envoy-ingress
+data:
+  nginx.conf: |
+    worker_processes 1;
+    events {}
+    # TCP stream proxy for iperf3 load testing.
+    # KinD extraPortMapping: localhost:32111 → containerPort:9111 (TCP).
+    # nginx forwards raw TCP directly to the iperf3 Service. Port 9111 is
+    # used (not 32111) because Cilium's BPF kube-proxy replacement blocks
+    # userspace bind() on the NodePort range 30000-32767.
+    stream {
+        resolver 10.96.0.10 valid=10s ipv6=off;
+        server {
+            listen 9111;
+            proxy_pass iperf3.iperf3.svc.cluster.local:32111;
+        }
+    }
+    http {
+        access_log off;
+        # Defer upstream DNS resolution to request time rather than startup.
+        # Without this, nginx crashes on boot if any proxy_pass hostname is
+        # unresolvable. With a resolver + variable, nginx starts regardless;
+        # unresolvable upstreams return 502 per-request instead of crashing.
+        resolver 10.96.0.10 valid=10s ipv6=off;
+        # All HTTP hostnames (grafana.local, prometheus.local, httpbin-contour.local)
+        # are handled by Contour's Envoy DaemonSet. Service name follows the
+        # Helm naming convention: <release>-<chart>-envoy = contour-contour-envoy.
+        server {
+            listen 8888 default_server;
+            server_name _;
+            location / {
+                set $contour_upstream http://contour-contour-envoy.contour.svc.cluster.local:80;
+                proxy_pass         $contour_upstream;
+                proxy_http_version 1.1;
+                proxy_set_header   Host              $host;
+                proxy_set_header   X-Real-IP         $remote_addr;
+                proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+                proxy_read_timeout 60s;
+            }
+        }
+    }
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nodeport-proxy
+  namespace: envoy-ingress
+  labels:
+    app.kubernetes.io/name: nodeport-proxy
+    app.kubernetes.io/component: proxy
+spec:
+  selector:
+    matchLabels:
+      app: nodeport-proxy
+  template:
+    metadata:
+      labels:
+        app: nodeport-proxy
+        sidecar.istio.io/inject: "false"
+        app.kubernetes.io/name: nodeport-proxy
+        app.kubernetes.io/component: proxy
+    spec:
+      automountServiceAccountToken: false
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      # Pin to control-plane node where KinD extraPortMappings are defined.
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: nginx
+          image: nginx:1.31-alpine
+          ports:
+            - containerPort: 8888
+            - containerPort: 9111
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 101   # nginx uid in the alpine image
+            runAsGroup: 101
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: run
+              mountPath: /var/run
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      volumes:
+        - name: conf
+          configMap:
+            name: nodeport-proxy-conf
+        - name: cache
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

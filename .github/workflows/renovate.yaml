@@ -1,0 +1,41 @@
+name: Renovate
+on:
+  workflow_dispatch: # Allows manual trigger
+  schedule:
+    - cron: "0 0 * * *" # Automatically runs every day at midnight
+
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+# These permissions apply to GITHUB_TOKEN only. RENOVATE_TOKEN (a PAT) is
+# controlled by the scopes set when the token was created — see the comment
+# on the "Self-hosted Renovate" step below for required PAT scopes.
+permissions:
+  contents: write # push renovate/* branches
+  pull-requests: write # open PRs
+  issues: write # read and update the Dependency Dashboard issue
+  security-events: read # needed for vulnerability alerts API
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Self-hosted Renovate
+        # RENOVATE_TOKEN must be a PAT with the following scopes:
+        #   Classic PAT : repo, workflow
+        #   Fine-grained: contents:write, issues:write, pull-requests:write,
+        #                 workflows:write, metadata:read
+        # The `workflow` / `workflows:write` scope is mandatory — without it
+        # GitHub silently rejects any push that touches .github/workflows/*.
+        uses: renovatebot/github-action@dd5302ec17783b2fc721b19ae7209b57b1587765 # v46.1.17
+        env:
+          # v46+ no longer auto-detects the repository from GITHUB_REPOSITORY;
+          # must be set explicitly so Renovate knows which repo to process.
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+        with:
+          configurationFile: renovate.json
+          token: ${{ secrets.RENOVATE_TOKEN }}

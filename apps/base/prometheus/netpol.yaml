@@ -1,0 +1,208 @@
+---
+# Deny all ingress and egress by default; subsequent policies carve out
+# only the traffic flows that observability workloads actually need.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: observability
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# All pods resolve DNS via CoreDNS in kube-system.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: observability
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# Pods with Istio sidecars need to reach istiod for certificate issuance
+# (15012), xDS config pushes (15010), and telemetry (15014).
+# Promtail and node-exporter have no sidecar but are not harmed by this rule.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-istiod-egress
+  namespace: observability
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+      ports:
+        - port: 15010
+        - port: 15012
+        - port: 15014
+---
+# All observability pods trust each other. This covers:
+#   Grafana → Prometheus (9090) and Loki (3100)
+#   Prometheus → AlertManager (9093), kube-state-metrics (8080), node-exporter (9100)
+#   Promtail → Loki (3100)
+#   prometheus-operator ↔ Prometheus (8080/9090)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: observability
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+---
+# Prometheus, the operator, kube-state-metrics, and Promtail all make
+# Kubernetes API calls (service discovery, CRD reads, pod/namespace listing).
+# The API server is not in a namespace, so we match port 6443 with no
+# destination restriction.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apiserver-egress
+  namespace: observability
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 6443
+---
+# Prometheus scrapes metrics from pods across every namespace in the cluster.
+# The set of target namespaces and ports is open-ended (Cilium, Istio, Falco,
+# Tetragon, Kyverno, Kubescape, flux-system, demo…), so we grant Prometheus
+# unrestricted egress rather than enumerate every metrics endpoint.
+# All other observability pods remain subject to the more restrictive policies above.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-allow-scrape-egress
+  namespace: observability
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  policyTypes:
+    - Egress
+  egress:
+    - {}
+---
+# Contour Envoy routes grafana.local HTTP traffic to Grafana on port 3000.
+# Contour pods run in the contour namespace with no Istio sidecar;
+# the port-3000 PERMISSIVE PeerAuthentication exception covers the plain-text
+# connection. NetworkPolicy still requires an explicit ingress rule here.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana-allow-contour-ingress
+  namespace: observability
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: contour
+      ports:
+        - port: 3000
+---
+# Contour Envoy routes prometheus.local HTTP traffic to Prometheus on port 9090.
+# Same reasoning as the Grafana rule above.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-allow-contour-ingress
+  namespace: observability
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: contour
+      ports:
+        - port: 9090
+---
+# The Kubernetes API server calls the Prometheus Operator admission webhook on
+# port 443 when creating or updating PrometheusRule and AlertmanagerConfig
+# resources. The API server has no pod or namespace label to select against,
+# so no `from` selector is used — any source reaching port 443 is allowed.
+# Without this rule the default-deny policy blocks the webhook, causing each
+# admission call to time out at 30 s (failurePolicy: Ignore). With 35+
+# PrometheusRules in the inventory, that adds 35 min to every Flux drift
+# detection pass, preventing observedGeneration from being set and blocking
+# all downstream HelmReleases that depend on kube-prometheus-stack.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-operator-allow-webhook-ingress
+  namespace: observability
+spec:
+  podSelector:
+    matchLabels:
+      app: kube-prometheus-stack-operator
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        # Service port 443 → container port 10250 (named "https").
+        # NetworkPolicy is enforced at the pod level, so the container port
+        # (10250) must be used here, not the service-level port (443).
+        - port: 10250
+---
+# Falcosidekick (in the falco namespace) ships structured alert JSON to Loki on
+# port 3100. The default-deny above blocks all cross-namespace ingress, so this
+# explicit rule is required for alert delivery to work.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: loki-allow-falcosidekick-ingress
+  namespace: observability
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: falco
+      ports:
+        - port: 3100
+          protocol: TCP
