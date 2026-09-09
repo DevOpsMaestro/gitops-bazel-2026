@@ -188,7 +188,7 @@ The "Chart Version" column is the Helm chart release version. The "App Version" 
 
 | Component | Chart / Source | Chart Version | App Version | Namespace | Notes |
 |---|---|---|---|---|---|
-| Flux CD | flux bootstrap | — | v2.8.8 | flux-system | Managed in `clusters/kind/flux-system/gotk-components.yaml` — do not edit manually |
+| Flux CD | flux bootstrap | — | v2.9.5 | flux-system | Managed in `clusters/kind/flux-system/gotk-components.yaml` — do not edit manually |
 | Cilium CNI | cilium/cilium | 1.19.5 | v1.19.5 | kube-system | |
 | Hubble Relay | (bundled with Cilium) | 1.19.5 | v1.19.5 | kube-system | |
 | Hubble UI | (bundled with Cilium) | — | 0.13.1 | kube-system | Disabled by default; enable via `hubble.ui.enabled: true` in `cilium.yaml` |
@@ -207,7 +207,7 @@ The "Chart Version" column is the Helm chart release version. The "App Version" 
 | OpenTelemetry Collector | open-telemetry/opentelemetry-collector | 0.159.0 | 0.154.0 | observability | Contrib distribution; OTLP ingress → Tempo export; Istio sidecar disabled |
 | Tetragon | cilium/tetragon | 1.7.0 | 1.7.0 | tetragon | |
 | Kyverno | kyverno/kyverno | 3.8.1 | v1.18.1 | kyverno | |
-| Kubescape | kubescape/kubescape-operator | 1.40.2 | v4.0.8 | kubescape | NSA + MITRE continuous scan; vulnerability scan disabled for KinD |
+| Kubescape | kubescape/kubescape-operator | 1.40.2 | v4.0.12 | kubescape | NSA + MITRE continuous scan; vulnerability scan disabled for KinD |
 | Falco + Falcosidekick | falcosecurity/falco | 9.1.0 | 0.44.1 / 2.32.0 | falco | |
 | Trivy Operator | aquasecurity/trivy-operator | 0.33.2 | 0.31.2 | trivy-system | Image CVE scanning — VulnerabilityReport CRDs + Prometheus metrics; `ignoreUnfixed: true` |
 | demo (httpbin) | kennethreitz/httpbin | — | @sha256:599fe5… | demo | No versioned tags published; pinned by digest |
@@ -225,7 +225,7 @@ Images referenced directly in manifests (outside of Helm charts). Helm-managed w
 | `boinc/client` | `arm64v8` | `apps/base/boinc/daemonset.yaml` | BOINC compute client (ARM64-native) |
 | `busybox` | `1.38` | `apps/base/boinc/daemonset.yaml` | initContainer: copies account XML credentials to hostPath |
 | `kennethreitz/httpbin` | `@sha256:599f…` | `apps/base/demo/httpbin.yaml` | HTTP echo server — mesh traffic target |
-| `curlimages/curl` | `8.20.0` | `apps/base/demo/load-generator.yaml` | Load generator: curl loop → httpbin every 5 s |
+| `curlimages/curl` | `8.21.0` | `apps/base/demo/load-generator.yaml` | Load generator: curl loop → httpbin every 5 s |
 | `nginx` | `1.31-alpine` | `apps/overlays/kind/istio/nodeport-proxy.yaml` | KinD ingress workaround: proxies host port 8888 → Envoy ClusterIP |
 | `networkstatic/iperf3` | `multiarch` | `apps/base/iperf3/deployment.yaml` | TCP bandwidth measurement server; connected via nginx stream block (no ingress controller) |
 | `falcosecurity/event-generator` | `0.13.0` | `tests/falco/event-generator.yaml` | Falco live detection test job |
@@ -237,7 +237,7 @@ The versions below were validated together. When upgrading a component, verify c
 | Component | Chart Version | App Version | Constrained By |
 |---|---|---|---|
 | Kubernetes (KinD node) | — | v1.36.1 | `K8S_VER` in `versions.env` |
-| Flux CD | — | v2.8.8 | `flux bootstrap github` — update by re-running bootstrap with a newer CLI |
+| Flux CD | — | v2.9.5 | `flux bootstrap github` — update by re-running bootstrap with a newer CLI |
 | Cilium | 1.19.5 | v1.19.5 | `cilium.yaml` chart constraint (`1.19.x`) + `versions.env` |
 | Istio | 1.30.2 | 1.30.2 | `istio.yaml` chart constraint (`1.30.x`) + `versions.env` |
 | Contour | 0.6.0 | 1.33.5 | `contour.yaml` chart constraint (`0.x`); `CONTOUR_VERSION` in `versions.env` (informational — Contour is installed by Flux, not the bootstrap script) |
@@ -245,11 +245,11 @@ The versions below were validated together. When upgrading a component, verify c
 | Loki | 7.0.0 | 3.6.7 | `loki/helmrelease.yaml` chart constraint (`7.x`) |
 | Grafana | 10.5.15 | 12.3.1 | `grafana/helmrelease.yaml` chart constraint (`10.x`) |
 | Grafana Tempo | 1.24.4 | 2.9.0 | `tempo/helmrelease.yaml` chart constraint (`1.x`) |
-| OpenTelemetry Collector | 0.159.0 | 0.154.0 | `opentelemetry/helmrelease.yaml` chart constraint (`0.159.x`) |
+| OpenTelemetry Collector | 0.159.0 | 0.154.0 | `opentelemetry/helmrelease.yaml` chart constraint (`0.x`) |
 | Kyverno | 3.8.1 | v1.18.1 | `kyverno.yaml` chart constraint (`3.x`) |
-| Kubescape | 1.40.2 | v4.0.8 | `kubescape.yaml` chart constraint (`1.40.x`) |
+| Kubescape | 1.40.2 | v4.0.12 | `kubescape.yaml` chart constraint (`1.x`) |
 | Falco | 9.1.0 | 0.44.1 | `falco.yaml` chart constraint (`9.x`) |
-| Tetragon | 1.7.0 | 1.7.0 | `tetragon.yaml` chart constraint (`1.7.x`) |
+| Tetragon | 1.7.0 | 1.7.0 | `tetragon.yaml` chart constraint (`1.x`) |
 | Trivy Operator | 0.33.2 | 0.31.2 | `trivy.yaml` chart constraint (`0.x`) |
 
 All version pins shared between the Bazel-wrapped scripts and setup script are sourced from `versions.env` at the repository root. Updating them there propagates the change to both consumers.
