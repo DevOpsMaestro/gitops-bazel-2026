@@ -46,4 +46,4 @@ out/
 
 # Ignore custom/community Copilot extension ignore files if used
 .copilotignore
-
+CLAUDE.md
