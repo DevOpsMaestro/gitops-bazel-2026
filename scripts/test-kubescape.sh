@@ -10,6 +10,6 @@ kubectl cluster-info >/dev/null 2>&1 \
   || { printf '\n  ✗ No cluster — run: bazel run //:bootstrap\n\n'; exit 1; }
 printf '\n==> Kubescape security posture scan (NSA + MITRE)\n'
 kubescape scan framework nsa,mitre \
-  --cluster-context "kind-$CLUSTER_NAME" \
+  --kube-context "kind-$CLUSTER_NAME" \
   --format pretty-printer \
   --verbose
