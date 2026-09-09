@@ -2,7 +2,11 @@
 set -euo pipefail
 
 # Shared version pins and CLUSTER_NAME live in versions.env at the repo root.
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# $BUILD_WORKSPACE_DIRECTORY is set by `bazel run` and points at the real
+# workspace — BASH_SOURCE-relative lookup breaks there since the executed
+# file is Bazel's launcher stub, not this script in place under scripts/.
+REPO_ROOT="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+cd "$REPO_ROOT"
 source "${REPO_ROOT}/versions.env"
 
 GITHUB_USER="DevOpsMaestro"

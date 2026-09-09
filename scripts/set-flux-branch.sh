@@ -7,6 +7,12 @@
 #   ./scripts/set-flux-branch.sh my-other-branch   # override the target branch
 set -e
 
+# $BUILD_WORKSPACE_DIRECTORY is set by `bazel run` and points at the real
+# workspace — needed since this script's relative paths and git commands
+# assume cwd is the repo root.
+REPO_ROOT="${BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+cd "$REPO_ROOT"
+
 BRANCH="${1:-$(git rev-parse --abbrev-ref HEAD)}"
 PATCH_FILE="clusters/kind/flux-system/kustomization.yaml"
 
