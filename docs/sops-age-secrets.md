@@ -27,7 +27,7 @@ Flux's `kustomize-controller` reads the `sops-age` secret from the cluster at re
 brew install age sops
 
 # Verify both are available
-make check-tools
+bazel run //:check-tools
 ```
 
 ---
@@ -37,7 +37,7 @@ make check-tools
 ### 1. Generate the Age Key Pair
 
 ```bash
-make sops-setup
+bazel run //:sops-setup
 ```
 
 This creates `~/.config/sops/age/keys.txt` containing both the public and private key. The command is idempotent — it skips generation if the file already exists and prints the public key.
@@ -77,10 +77,10 @@ git commit -m "chore(sops): set age public key"
 ### 4. Load the Private Key into the Running Cluster
 
 ```bash
-make sops-load-key
+bazel run //:sops-load-key
 ```
 
-This creates the `sops-age` secret in the `flux-system` namespace. The command is idempotent — safe to re-run after every `make bootstrap`.
+This creates the `sops-age` secret in the `flux-system` namespace. The command is idempotent — safe to re-run after every `bazel run //:bootstrap`.
 
 Verify it was created:
 
@@ -214,11 +214,11 @@ The `decryption:` block is already configured on the `apps` Kustomization — no
 
 ## Cluster Rebuild Procedure
 
-After `make destroy`, the cluster is gone and the `sops-age` secret is lost with it. The bootstrap script re-loads it automatically on the next `make bootstrap` if the age key exists at the standard path:
+After `bazel run //:destroy`, the cluster is gone and the `sops-age` secret is lost with it. The bootstrap script re-loads it automatically on the next `bazel run //:bootstrap` if the age key exists at the standard path:
 
 ```bash
-make destroy
-make bootstrap        # step 8/10 re-creates sops-age automatically
+bazel run //:destroy
+bazel run //:bootstrap        # step 8/10 re-creates sops-age automatically
 flux get all -A       # watch reconciliation — secrets decrypt on first sync
 ```
 
@@ -232,7 +232,7 @@ cat > ~/.config/sops/age/keys.txt <<'EOF'
 # public key: age1...
 AGE-SECRET-KEY-1...
 EOF
-make bootstrap
+bazel run //:bootstrap
 ```
 
 ---
@@ -281,7 +281,7 @@ flux suspend helmrelease grafana -n flux-system
 flux resume helmrelease grafana -n flux-system
 ```
 
-**After a cluster rebuild:** The bootstrap script recreates this Secret automatically. No manual step is required after `make bootstrap`.
+**After a cluster rebuild:** The bootstrap script recreates this Secret automatically. No manual step is required after `bazel run //:bootstrap`.
 
 ---
 
@@ -290,10 +290,10 @@ flux resume helmrelease grafana -n flux-system
 If the age private key is lost (machine failure, accidental deletion, no backup):
 
 1. Every SOPS-encrypted secret in the repository is permanently unreadable.
-2. Generate a new key pair with `make sops-setup`.
+2. Generate a new key pair with `bazel run //:sops-setup`.
 3. Update `.sops.yaml` with the new public key.
 4. Recreate every encrypted secret manually (the original plaintext values must be known).
 5. Re-encrypt all secrets with the new key.
-6. Run `make sops-load-key` to load the new key into the cluster.
+6. Run `bazel run //:sops-load-key` to load the new key into the cluster.
 
 **Prevention:** Back up `~/.config/sops/age/keys.txt` to a password manager immediately after generation (see step 2 of One-Time Setup). This is the single most critical step in the entire setup.

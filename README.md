@@ -252,7 +252,7 @@ The versions below were validated together. When upgrading a component, verify c
 | Tetragon | 1.7.0 | 1.7.0 | `tetragon.yaml` chart constraint (`1.7.x`) |
 | Trivy Operator | 0.33.2 | 0.31.2 | `trivy.yaml` chart constraint (`0.x`) |
 
-All version pins shared between the Makefile and setup script are sourced from `versions.env` at the repository root. Updating them there propagates the change to both consumers.
+All version pins shared between the Bazel-wrapped scripts and setup script are sourced from `versions.env` at the repository root. Updating them there propagates the change to both consumers.
 
 ## Key Design Decisions
 
@@ -304,15 +304,17 @@ All version pins shared between the Makefile and setup script are sourced from `
 
 ### Required Tools
 
+All operations are exposed as Bazel targets (`brew install bazelisk` if `bazel` isn't already on your machine). Run `bazel run //:help` to list them all.
+
 ```bash
-make check-tools   # verifies: docker, kind, kubectl, helm, flux, gh, kyverno, kubescape
+bazel run //:check-tools   # verifies: docker, kind, kubectl, helm, flux, gh, kyverno, kubescape
 ```
 
 Missing tools are available via `brew install <name>` (`kyverno` CLI: `brew install kyverno`; `kubescape` CLI: `brew install kubescape`).
 
 ### Docker Desktop Memory
 
-The full observability stack (Prometheus, Loki, Grafana, Promtail, node-exporter) plus Cilium, Istio sidecars, Falco, Tetragon, and Kyverno requires significant container memory. Configure Docker Desktop before running `make bootstrap`:
+The full observability stack (Prometheus, Loki, Grafana, Promtail, node-exporter) plus Cilium, Istio sidecars, Falco, Tetragon, and Kyverno requires significant container memory. Configure Docker Desktop before running `bazel run //:bootstrap`:
 
 | Host RAM | Recommended Docker Desktop Memory |
 |---|---|
@@ -329,7 +331,7 @@ CPU: set to at least 4 cores. The M-series unified memory architecture means Doc
 The setup script handles cluster creation, Cilium pre-install, and Flux bootstrap in one operation:
 
 ```bash
-make bootstrap
+bazel run //:bootstrap
 ```
 
 What it does:
@@ -351,15 +353,15 @@ What it does:
 | Scenario | Time |
 |---|---|
 | First run (cold Docker cache, fast network) | ~15–20 min |
-| Subsequent run after `make pull-images` | ~8–10 min |
-| Subsequent run after `make cache-running` (all images cached) | ~5–7 min |
+| Subsequent run after `bazel run //:pull-images` | ~8–10 min |
+| Subsequent run after `bazel run //:cache-running` (all images cached) | ~5–7 min |
 
-The dominant cost on the first run is image pulls. Running `make pull-images` once per version update populates the local Docker cache; subsequent `make bootstrap` invocations skip all registry traffic for the pre-load step.
+The dominant cost on the first run is image pulls. Running `bazel run //:pull-images` once per version update populates the local Docker cache; subsequent `bazel run //:bootstrap` invocations skip all registry traffic for the pre-load step.
 
 To update the Flux GitRepository branch patch after creating a new branch:
 
 ```bash
-make branch
+bazel run //:branch
 ```
 
 After bootstrap, monitor Flux reconciliation:
@@ -409,7 +411,7 @@ kubectl get httpproxy -A
 # Expected: pods Running; all HTTPProxy STATUS: valid (grafana, prometheus, httpbin)
 
 # 11. Run offline policy unit tests (no cluster required)
-make test-policies
+bazel run //:test-policies
 ```
 
 If any step fails, consult the [Troubleshooting Guide](docs/troubleshooting-guide.md) and navigate to the relevant technology section.
@@ -564,7 +566,7 @@ kubectl logs -n tetragon -l app.kubernetes.io/name=tetragon -c export-stdout | h
 Runs 48 Kyverno CLI tests: 45 covering the four validation ClusterPolicies and 3 covering the mutation policy. The `verify-image-signatures` ClusterPolicy is not covered by offline unit tests — signature verification requires a live registry connection to Rekor and the image registry, so it cannot be exercised with static fixture manifests.
 
 ```bash
-make test-policies
+bazel run //:test-policies
 
 # Or run directly for the full per-test result table:
 kyverno test apps/base/kyverno/tests/
@@ -577,7 +579,7 @@ Requires `kyverno` CLI: `brew install kyverno`.
 Runs an NSA + MITRE framework scan against the live cluster using the Kubescape CLI, targeting the `kind-flux-kind` context:
 
 ```bash
-make test-kubescape
+bazel run //:test-kubescape
 ```
 
 Requires `kubescape` CLI: `brew install kubescape`. The operator continuously scans in the background; this target provides an on-demand CLI summary. Scan results are also available via:
@@ -592,7 +594,7 @@ kubectl get workloadconfigurationscans -A
 Deploys the official `falcosecurity/event-generator` as a Kubernetes Job that triggers the syscall action suite (reads sensitive files, spawns shells, searches for credentials). After the Job completes, the target queries Falco pod logs on the same node for expected rule matches:
 
 ```bash
-make test-falco
+bazel run //:test-falco
 ```
 
 Checks for: `Read sensitive file untrusted`, `Run shell untrusted`, `Find AWS Credentials`, `Search Private Keys or Passwords`. Exits non-zero if any rule was not detected. Cleans up the `falco-test` namespace on completion.
@@ -602,7 +604,7 @@ Checks for: `Read sensitive file untrusted`, `Run shell untrusted`, `Find AWS Cr
 These tests measure TCP bandwidth through the nginx nodeport-proxy stream layer directly to the iperf3 pod:
 
 ```bash
-make test-iperf3    # Single-stream baseline bandwidth test
+bazel run //:test-iperf3    # Single-stream baseline bandwidth test
 ```
 
 Requires the `iperf3` CLI: `brew install iperf3`. The iperf3 server listens on port 32111 inside the cluster. The KinD `extraPortMapping` and the nginx `stream {}` block expose it on `localhost:32111` on the host. Pass `-4` to the iperf3 client to force IPv4 and avoid connection failures from IPv6 address resolution.
@@ -610,7 +612,7 @@ Requires the `iperf3` CLI: `brew install iperf3`. The iperf3 server listens on p
 ## Teardown
 
 ```bash
-make destroy
+bazel run //:destroy
 ```
 
 ## Troubleshooting

@@ -927,7 +927,7 @@ Offline — no cluster required. Tests all four validation ClusterPolicies again
 
 ```bash
 # Via Make (runs kyverno test under the hood):
-make test-policies
+bazel run //:test-policies
 # Requires: brew install kyverno
 
 # Or run directly to see the full per-test table:
@@ -1018,7 +1018,7 @@ curl -s http://localhost:9090/api/v1/targets \
 Requires a running cluster with Falco healthy.
 
 ```bash
-make test-falco
+bazel run //:test-falco
 ```
 
 This deploys `falcosecurity/event-generator:0.13.0` as a Job that triggers the syscall action suite, then checks the Falco pod log on the same node for 4 expected rule matches. The target removes the `falco-test` namespace on completion.
@@ -1332,7 +1332,7 @@ kubectl get helmrelease kubescape -n flux-system
 
 ```bash
 # Live cluster scan via Make (NSA + MITRE frameworks)
-make test-kubescape
+bazel run //:test-kubescape
 
 # Or run directly against the current context
 kubescape scan framework nsa,mitre \
@@ -1372,7 +1372,7 @@ See [docs/sops-age-secrets.md](sops-age-secrets.md) for the complete setup guide
 
 ```bash
 kubectl get secret sops-age -n flux-system
-# If missing: make sops-load-key
+# If missing: bazel run //:sops-load-key
 ```
 
 ### Verify Flux Decrypted a Secret Successfully
@@ -1520,7 +1520,7 @@ kubectl run curl-test --image=curlimages/curl --rm -it --restart=Never -- \
 
 ### Falco Not Detecting Expected Rules
 
-**Symptom:** `make test-falco` reports one or more rules not detected.
+**Symptom:** `bazel run //:test-falco` reports one or more rules not detected.
 
 ```bash
 # 1. Check that the modern_ebpf driver loaded successfully
@@ -1535,7 +1535,7 @@ kubectl get pod -n falco-test -l job-name=falco-event-generator \
 kubectl get pods -n falco -o wide
 # The node names must match
 
-# 4. Widen the log window (the make target looks back to Job start time)
+# 4. Widen the log window (the bazel target looks back to Job start time)
 kubectl logs -n falco -l app.kubernetes.io/name=falco --since=10m \
   | grep -i "untrusted\|credential\|shell"
 ```

@@ -119,7 +119,7 @@ Open `http://grafana.local:8080`, navigate to **Dashboards → Kubescape Securit
 
 ```bash
 # On-demand scan against the live cluster (NSA + MITRE)
-make test-kubescape
+bazel run //:test-kubescape
 
 # Or run directly for verbose output
 kubescape scan framework nsa,mitre \
@@ -182,7 +182,7 @@ kubectl create secret generic grafana-secret-key \
 kubectl rollout restart deployment -n observability observability-grafana
 ```
 
-Note: The bootstrap script recreates this Secret automatically on every `make bootstrap`. Manual rotation is needed only on a running cluster.
+Note: The bootstrap script recreates this Secret automatically on every `bazel run //:bootstrap`. Manual rotation is needed only on a running cluster.
 
 ### SOPS Age Key
 
@@ -201,7 +201,7 @@ The SOPS age private key encrypts every Secret in this repository. Rotate it onl
    ```
 4. Load the new key into the cluster:
    ```bash
-   make sops-load-key
+   bazel run //:sops-load-key
    ```
 5. Commit and push.
 

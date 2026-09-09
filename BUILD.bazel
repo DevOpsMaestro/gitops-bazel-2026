@@ -1,0 +1,150 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+# Bazel entry points for cluster operations, replacing the old Makefile.
+#
+# Run `bazel run //:help` for the full list. Each target is a thin sh_binary
+# wrapper around the corresponding script in scripts/ — the scripts remain
+# the source of truth for behavior; Bazel just gives a single `bazel run
+# //:<target>` entry point instead of `make <target>`.
+#
+# Scripts cd to $BUILD_WORKSPACE_DIRECTORY (set by `bazel run`) so they always
+# operate on the real working tree rather than the Bazel sandbox/runfiles copy
+# — required since several of them mutate real files (e.g. iperf3-enable) or
+# read host state outside the workspace (e.g. ~/.config/sops).
+
+sh_binary(
+    name = "help",
+    srcs = ["scripts/help.sh"],
+)
+
+sh_binary(
+    name = "bootstrap",
+    srcs = ["scripts/setup-fluxcd-gitops-kind-multinode.sh"],
+)
+
+sh_binary(
+    name = "destroy",
+    srcs = ["scripts/destroy.sh"],
+)
+
+sh_binary(
+    name = "branch",
+    srcs = ["scripts/set-flux-branch.sh"],
+)
+
+sh_binary(
+    name = "pull-images",
+    srcs = ["scripts/pull-images.sh"],
+)
+
+sh_binary(
+    name = "load-images",
+    srcs = ["scripts/load-images.sh"],
+)
+
+sh_binary(
+    name = "cache-running",
+    srcs = ["scripts/kind-pre-loader-for-images.sh"],
+)
+
+sh_binary(
+    name = "check-tools",
+    srcs = ["scripts/check-tools.sh"],
+)
+
+sh_binary(
+    name = "sops-setup",
+    srcs = ["scripts/sops-setup.sh"],
+)
+
+sh_binary(
+    name = "sops-load-key",
+    srcs = ["scripts/sops-load-key.sh"],
+)
+
+sh_binary(
+    name = "grafana-secret",
+    srcs = ["scripts/grafana-secret.sh"],
+)
+
+sh_binary(
+    name = "status",
+    srcs = ["scripts/status.sh"],
+)
+
+sh_binary(
+    name = "check-crd-count",
+    srcs = ["scripts/check-crd-count.sh"],
+)
+
+sh_binary(
+    name = "etcd-status",
+    srcs = ["scripts/etcd-status.sh"],
+    data = ["scripts/etcd_status.py"],
+)
+
+sh_binary(
+    name = "etcd-defrag",
+    srcs = ["scripts/etcd-defrag.sh"],
+    data = ["scripts/etcd_frag_line.py"],
+)
+
+sh_binary(
+    name = "watch",
+    srcs = ["scripts/watch-flux.sh"],
+)
+
+sh_binary(
+    name = "validate",
+    srcs = ["scripts/validate.sh"],
+)
+
+sh_binary(
+    name = "test-policies",
+    srcs = ["scripts/test-policies.sh"],
+)
+
+sh_binary(
+    name = "test-istio",
+    srcs = ["scripts/test-istio.sh"],
+)
+
+sh_binary(
+    name = "test-kyverno",
+    srcs = ["scripts/test-kyverno.sh"],
+)
+
+sh_binary(
+    name = "test-falco",
+    srcs = ["scripts/test-falco.sh"],
+)
+
+sh_binary(
+    name = "test-kubescape",
+    srcs = ["scripts/test-kubescape.sh"],
+)
+
+sh_binary(
+    name = "test-cluster",
+    srcs = ["scripts/test-cluster.sh"],
+)
+
+sh_binary(
+    name = "test-contour",
+    srcs = ["scripts/test-contour.sh"],
+)
+
+sh_binary(
+    name = "test-iperf3",
+    srcs = ["scripts/test-iperf3.sh"],
+)
+
+sh_binary(
+    name = "iperf3-enable",
+    srcs = ["scripts/iperf3-enable.sh"],
+)
+
+sh_binary(
+    name = "iperf3-disable",
+    srcs = ["scripts/iperf3-disable.sh"],
+)

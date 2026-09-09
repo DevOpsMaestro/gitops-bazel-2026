@@ -1,6 +1,10 @@
 # created by workflow actions
 bin/flux
 
+# Bazel output symlinks and lock file
+/bazel-*
+MODULE.bazel.lock
+
 .DS_Store
 **/.DS_Store
 

@@ -90,7 +90,7 @@ CILIUM_IMAGES=(
   "quay.io/cilium/hubble-relay:v${CILIUM_VERSION}"
   # hubble-ui and hubble-ui-backend are omitted — Hubble UI is disabled by
   # default in infrastructure/controllers/cilium.yaml (hubble.ui.enabled: false).
-  # Enable it there first, then run `make pull-images && make load-images`.
+  # Enable it there first, then run `bazel run //:pull-images && bazel run //:load-images`.
 )
 
 # Append envoy only if successfully resolved
@@ -331,7 +331,7 @@ flux bootstrap github \
   --token-auth
 
 # ── Step 8: SOPS age key (optional — only runs if key file exists) ────────────
-# If the user has run `make sops-setup`, the age private key lives at the
+# If the user has run `bazel run //:sops-setup`, the age private key lives at the
 # standard path. Loading it here ensures kustomize-controller can decrypt
 # SOPS-encrypted secrets on the first reconciliation, before any manual
 # post-bootstrap steps are needed.
@@ -346,7 +346,7 @@ if [ -f "${AGE_KEY_FILE}" ]; then
   printf "  ✓ sops-age secret created in flux-system\n"
 else
   printf "\n[8/10] SOPS age key not found at %s — skipping\n" "${AGE_KEY_FILE}"
-  printf "       Run 'make sops-setup' then 'make sops-load-key' to enable SOPS decryption\n"
+  printf "       Run 'bazel run //:sops-setup' then 'bazel run //:sops-load-key' to enable SOPS decryption\n"
 fi
 
 # ── Step 9: GitHub notification token ────────────────────────────────────────

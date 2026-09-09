@@ -1,0 +1,6 @@
+module(
+    name = "gitops_bazel_2026",
+    version = "0.0.0",
+)
+
+bazel_dep(name = "rules_shell", version = "0.6.1")
