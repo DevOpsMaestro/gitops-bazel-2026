@@ -39,6 +39,11 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
+            # curl_user:curl_group (100:101) — the built-in non-root user baked
+            # into the curlimages/curl image.
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
             capabilities:
               drop: [ALL]
           volumeMounts:
