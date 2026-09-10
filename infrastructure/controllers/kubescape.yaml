@@ -59,38 +59,8 @@ spec:
       # 400 "missing account id" error on every scan cycle because no account
       # or accessKey is configured. Enable offline mode to suppress this.
       kubescapeOffline: enable
-    # Known chart issue (kubescape-operator ≤1.40.x): the chart mounts an emptyDir
-    # volume with subPath: config.json at /home/nonroot/.kubescape/config.json.
-    # Kubernetes creates the subPath entry as a directory before any container
-    # starts, so the kubescape CLI binary finds a directory at that path instead
-    # of a writable file. This causes every scan cycle to fail with:
-    #   open /home/nonroot/.kubescape/config.json: is a directory
-    # and produces 0.00 compliance scores across all frameworks.
-    #
-    # Workaround (postRenderers below): remove the kubescape-volume emptyDir mount
-    # entirely. With the mount gone, the image's own /home/nonroot/.kubescape/
-    # directory is used, and the kubescape binary can create config.json as a
-    # real file. The constraint above is widened to 1.x so Flux picks up the
-    # upstream chart fix automatically when a corrected release is available, at
-    # which point the postRenderers block can be removed.
     configurations:
       prometheusAnnotations: disable
-  # Remove the broken emptyDir subPath mount for config.json. See comment above.
-  # Indices confirmed against kubescape-operator 1.40.2 Deployment spec:
-  #   containers[0].volumeMounts[1] → /home/nonroot/.kubescape/config.json (subPath: config.json)
-  #   volumes[3]                    → kubescape-volume (emptyDir)
-  postRenderers:
-    - kustomize:
-        patches:
-          - target:
-              kind: Deployment
-              name: kubescape
-              namespace: kubescape
-            patch: |
-              - op: remove
-                path: /spec/template/spec/containers/0/volumeMounts/1
-              - op: remove
-                path: /spec/template/spec/volumes/3
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
