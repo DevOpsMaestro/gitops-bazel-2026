@@ -35,8 +35,17 @@ spec:
             runAsNonRoot: true
             runAsUser: 100
             runAsGroup: 101
+            # iperf3 needs a writable /tmp for actual data-stream transfers —
+            # confirmed via a local read-only test: the server accepts the TCP
+            # connection fine, but the transfer itself fails with "unable to
+            # create a new stream: Bad file descriptor" without it. A tmp
+            # emptyDir (same pattern as httpbin/load-generator) fixes this.
+            readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           resources:
             requests:
               cpu: 50m
@@ -44,3 +53,6 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+      volumes:
+        - name: tmp
+          emptyDir: {}
