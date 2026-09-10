@@ -16,6 +16,7 @@ spec:
         app: boinc
     spec:
       hostPID: true
+      automountServiceAccountToken: false
       initContainers:
         - name: boinc-account-init
           image: busybox:1.38
