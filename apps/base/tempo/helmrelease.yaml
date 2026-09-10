@@ -46,20 +46,29 @@ spec:
     podLabels:
       sidecar.istio.io/inject: "false"
 
-    resources:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        cpu: 300m
-        memory: 256Mi
-
     persistence:
       enabled: true
       storageClassName: openebs-hostpath
       size: 10Gi
 
     tempo:
+      # NOTE: this must live under `tempo.resources`, not a top-level `resources:`
+      # key — the chart's statefulset template only reads `.Values.tempo.resources`
+      # for the main container. A top-level `resources:` block renders as `{}`
+      # and is silently ignored (confirmed via `helm template`), which is why
+      # Kubescape flagged this container as having no limits despite one being
+      # declared here previously.
+      # Actual usage is ~9m CPU / 263Mi memory (kubectl top); the limit needs
+      # headroom above the observed 263Mi, which the previous (inert) 256Mi
+      # limit did not have.
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 300m
+          memory: 512Mi
+
       # Disable anonymous usage reporting.
       reportingEnabled: false
       server:
