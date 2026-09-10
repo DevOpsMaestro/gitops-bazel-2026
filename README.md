@@ -2,6 +2,58 @@
 
 FluxCD GitOps cluster for KinD — multi-node, Cilium CNI with kube-proxy replacement, Hubble observability, Istio service mesh (mTLS), Contour for HTTP ingress.
 
+## What This Project Does, in Plain English
+
+This project stores the full setup for a Kubernetes cluster as text files in Git. A tool called Flux watches this repository and updates the live cluster automatically whenever those files change. You never run manual setup commands after the first bootstrap — you edit a file, push it, and the cluster catches up on its own. This pattern is called **GitOps**.
+
+Here's the same idea broken into pieces:
+
+- **Git** stores the desired setup for the whole cluster, as plain text files.
+- **Kubernetes** runs the actual applications, packaged as containers, across several machines.
+- **Flux** watches the Git repository and updates Kubernetes whenever the files change.
+- **Cilium** gives every container a network connection, so containers can reach each other and the internet.
+- **Istio** manages and encrypts traffic that flows between the applications running inside the cluster.
+- **Contour** accepts traffic arriving from outside the cluster and routes it to the right application.
+- **Prometheus**, **Loki**, and **Tempo** each collect one kind of operational data: metrics, logs, and traces.
+- **Grafana** turns that collected data into dashboards a person can actually read.
+- **Kyverno**, **Kubescape**, **Falco**, and **Tetragon** watch the cluster for security problems, each from a different angle.
+
+None of these tools do much by themselves. Flux is the glue that connects Git to all of them, so the whole system stays in sync with what's written down.
+
+### Glossary
+
+Short, one-sentence definitions of terms you'll see throughout this README and the rest of the docs. Each entry stands on its own, so you don't need to read the others first.
+
+| Term | Plain-English definition |
+|---|---|
+| **Kubernetes** | A system that runs containers across a group of computers and restarts them automatically if they fail. |
+| **Container** | A packaged application that includes everything it needs to run, kept separate from other applications on the same machine. |
+| **GitOps** | Managing infrastructure by treating a Git repository as the source of truth, with a tool that automatically applies whatever is committed there. |
+| **Flux** | The tool in this cluster that reads the Git repository and applies changes to Kubernetes automatically. |
+| **Helm** | A packaging format for Kubernetes applications; a "chart" is a bundle of configuration for one piece of software. |
+| **HelmRelease** | Flux's instruction to install or update one Helm chart, with a specific set of settings. |
+| **Kustomization** | A Flux instruction that says "apply everything in this folder," used to group and order files. |
+| **CRD (Custom Resource Definition)** | A way to teach Kubernetes about a new kind of object, so a tool like Flux or Istio can add its own configuration types. |
+| **CNI (Container Network Interface)** | The plumbing that gives every container its own network address; Cilium is this cluster's CNI. |
+| **Cilium** | The tool that provides networking between containers, plus the ability to write network security rules. |
+| **Hubble** | A dashboard for Cilium that shows which containers are talking to which, in real time. |
+| **Istio** | A service mesh — it sits between applications and manages, secures, and observes the traffic flowing between them. |
+| **mTLS (mutual TLS)** | Encryption where both sides of a connection prove their identity to each other, not just one side. |
+| **Contour** | The ingress controller — it takes requests arriving from outside the cluster and forwards them to the right internal application. |
+| **Ingress** | The general term for traffic entering a cluster from the outside world. |
+| **Prometheus** | A tool that collects numeric metrics, like CPU usage or request counts, from every part of the cluster. |
+| **Loki** | A tool that collects and stores log messages from every application in the cluster. |
+| **Tempo** | A tool that collects traces — records of one request's path through several services. |
+| **Grafana** | A dashboard tool that displays the data collected by Prometheus, Loki, and Tempo. |
+| **Kyverno** | A tool that checks Kubernetes configuration against security rules and blocks anything that breaks them. |
+| **Kubescape** | A tool that scans the cluster for known security weaknesses and reports a compliance score. |
+| **Falco / Tetragon** | Two tools that watch running containers for suspicious behavior, such as unexpected shell access or file changes. |
+| **cert-manager** | A tool that creates and renews the certificates used for encrypted (HTTPS/TLS) connections. |
+| **KinD (Kubernetes in Docker)** | A way to run a full Kubernetes cluster on a single laptop, using Docker containers to stand in for real machines. |
+| **Bazel** | The command runner used in this repository instead of a Makefile; cluster operations run as `bazel run //:<target>`. |
+
+For a deeper look at each technology — including exactly how it's configured in this cluster — see [Key Concepts](docs/key_concepts.md).
+
 ## Diagrams
 
 | Diagram | Description |
