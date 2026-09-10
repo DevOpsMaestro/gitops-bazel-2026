@@ -70,7 +70,7 @@ jobs:
 
       - name: Install Kubescape CLI
         env:
-          KUBESCAPE_VERSION: v4.0.12
+          KUBESCAPE_VERSION: v4.0.13
         run: |
           VERSION_CLEAN="${KUBESCAPE_VERSION#v}"
           ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
@@ -84,10 +84,21 @@ jobs:
 
       - name: Kubescape offline scan (NSA + MITRE)
         run: |
+          # --exclude-controls C-0292: "Nginx Ingress Controller End of Life" does
+          # not apply to this stack — Contour is the sole ingress controller, not
+          # nginx-ingress. Also defends against a recurring upstream fragility:
+          # this control's rego rule depends on a ValidatingAdmissionPolicy that
+          # must exist in both the pinned CLI's embedded bundle AND the
+          # unpinned "latest" regolibrary controls downloaded above — a mismatch
+          # here has fatally crashed this step twice already with two different
+          # CLI versions (v4.0.9: "language 'CEL' not supported"; v4.0.12: "no
+          # ValidatingAdmissionPolicy ... in embedded bundle"). Excluding an
+          # inapplicable control removes that recurring failure mode entirely.
           kubescape scan framework nsa,mitre \
             --format junit \
             --output kubescape-results.xml \
             --compliance-threshold 80 \
+            --exclude-controls C-0292 \
             ./infrastructure/ ./apps/
 
       - name: Upload Kubescape scan results
