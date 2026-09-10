@@ -96,6 +96,18 @@ spec:
         # 20 MB provides enough headroom for a typical multi-minute sleep.
         per_stream_rate_limit_burst: 20MB
 
+    # loki-sc-rules (kiwigrid/k8s-sidecar) syncs Grafana rule ConfigMaps into
+    # the Loki filesystem. The main loki container already has resources set
+    # below; this sidecar had none, which is what Kubescape actually flagged.
+    sidecar:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+
     singleBinary:
       replicas: 1
       podAnnotations:
