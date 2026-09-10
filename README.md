@@ -207,7 +207,7 @@ The "Chart Version" column is the Helm chart release version. The "App Version" 
 | OpenTelemetry Collector | open-telemetry/opentelemetry-collector | 0.159.0 | 0.154.0 | observability | Contrib distribution; OTLP ingress → Tempo export; Istio sidecar disabled |
 | Tetragon | cilium/tetragon | 1.7.0 | 1.7.0 | tetragon | |
 | Kyverno | kyverno/kyverno | 3.8.1 | v1.18.1 | kyverno | |
-| Kubescape | kubescape/kubescape-operator | 1.40.2 | v4.0.12 | kubescape | NSA + MITRE continuous scan; vulnerability scan disabled for KinD |
+| Kubescape | kubescape/kubescape-operator | 1.40.2 | v4.0.13 | kubescape | NSA + MITRE continuous scan; vulnerability scan disabled for KinD |
 | Falco + Falcosidekick | falcosecurity/falco | 9.1.0 | 0.44.1 / 2.32.0 | falco | |
 | Trivy Operator | aquasecurity/trivy-operator | 0.33.2 | 0.31.2 | trivy-system | Image CVE scanning — VulnerabilityReport CRDs + Prometheus metrics; `ignoreUnfixed: true` |
 | demo (httpbin) | kennethreitz/httpbin | — | @sha256:599fe5… | demo | No versioned tags published; pinned by digest |
@@ -247,7 +247,7 @@ The versions below were validated together. When upgrading a component, verify c
 | Grafana Tempo | 1.24.4 | 2.9.0 | `tempo/helmrelease.yaml` chart constraint (`1.x`) |
 | OpenTelemetry Collector | 0.159.0 | 0.154.0 | `opentelemetry/helmrelease.yaml` chart constraint (`0.x`) |
 | Kyverno | 3.8.1 | v1.18.1 | `kyverno.yaml` chart constraint (`3.x`) |
-| Kubescape | 1.40.2 | v4.0.12 | `kubescape.yaml` chart constraint (`1.x`) |
+| Kubescape | 1.40.2 | v4.0.13 | `kubescape.yaml` chart constraint (`1.x`) |
 | Falco | 9.1.0 | 0.44.1 | `falco.yaml` chart constraint (`9.x`) |
 | Tetragon | 1.7.0 | 1.7.0 | `tetragon.yaml` chart constraint (`1.x`) |
 | Trivy Operator | 0.33.2 | 0.31.2 | `trivy.yaml` chart constraint (`0.x`) |
