@@ -29,6 +29,12 @@ spec:
               protocol: TCP
           securityContext:
             allowPrivilegeEscalation: false
+            # iperf3:iperf3 (100:101) — the built-in non-root user baked into the
+            # networkstatic/iperf3 image (server port 32111 is unprivileged, so no
+            # capability concerns).
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
             capabilities:
               drop: [ALL]
           resources:
