@@ -86,6 +86,16 @@ spec:
       traceSampling: 100.0
       # Suppress info-level istiod logs. Valid: none, error, warn, info, debug.
       logLevel: warning
+      # The chart's own suggested default (500m/2048Mi request) is sized for
+      # production; this cluster's actual usage is ~2m/40Mi, so size modestly
+      # to stay within the shared KinD memory budget instead.
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
     # KinD has no Metrics Server so the HPA can never collect CPU data.
     # Disable it to suppress FailedGetResourceMetric warnings.
     autoscaleEnabled: false

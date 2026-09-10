@@ -117,6 +117,13 @@ spec:
         enabled: true
         replicas: 1
         logLevel: "warning"
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
       ui:
         # Disabled by default to save ~200 Mi RAM on KinD.
         # Re-enable: kubectl patch helmrelease cilium -n flux-system --type=merge \
@@ -151,6 +158,13 @@ spec:
         enabled: true
         serviceMonitor:
           enabled: false
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
 
     # ── Istio integration ─────────────────────────────────────────────────────
     # When Istio is also installed, Envoy sidecars and Cilium's eBPF datapath

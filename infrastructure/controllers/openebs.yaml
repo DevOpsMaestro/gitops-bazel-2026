@@ -63,6 +63,14 @@ spec:
         isDefaultClass: true
       analytics:
         enabled: false
+      localpv:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
 ---
 # ── openebs namespace ─────────────────────────────────────────────────────────
 # localpv-provisioner is a storage controller that watches PVC/PV objects via the
