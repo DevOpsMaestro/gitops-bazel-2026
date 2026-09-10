@@ -50,7 +50,14 @@ spec:
     cainjector:
       enabled: false
     replicaCount: 0
+    # jetstack images run as uid/gid 65532 by default (distroless nonroot);
+    # runAsNonRoot is already set by the chart's own securityContext default,
+    # this just makes the group explicit for Kubescape's non-root-containers check.
+    containerSecurityContext:
+      runAsGroup: 65532
     webhook:
+      containerSecurityContext:
+        runAsGroup: 65532
       resources:
         requests:
           cpu: 10m
@@ -113,6 +120,11 @@ spec:
     # 0 = error/warning, 1 = info, 2+ = debug. Default is 2.
     global:
       logLevel: 1
+    # jetstack images run as uid/gid 65532 by default (distroless nonroot);
+    # runAsNonRoot is already set by the chart's own securityContext default,
+    # this just makes the group explicit for Kubescape's non-root-containers check.
+    containerSecurityContext:
+      runAsGroup: 65532
     resources:
       requests:
         cpu: 10m
@@ -121,6 +133,8 @@ spec:
         cpu: 100m
         memory: 128Mi
     webhook:
+      containerSecurityContext:
+        runAsGroup: 65532
       resources:
         requests:
           cpu: 10m
@@ -130,6 +144,8 @@ spec:
           memory: 128Mi
     cainjector:
       enabled: true
+      containerSecurityContext:
+        runAsGroup: 65532
       resources:
         requests:
           cpu: 10m
@@ -139,6 +155,8 @@ spec:
           memory: 128Mi
     startupapicheck:
       enabled: true
+      containerSecurityContext:
+        runAsGroup: 65532
       resources:
         requests:
           cpu: 10m

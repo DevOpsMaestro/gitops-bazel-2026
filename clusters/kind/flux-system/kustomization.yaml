@@ -26,3 +26,70 @@ patches:
       spec:
         ref:
           branch: main
+  # fluxcd images run as uid/gid 65534 by default (distroless nonroot);
+  # runAsNonRoot is already set by flux bootstrap's generated manifest, this
+  # just makes the group explicit for Kubescape's non-root-containers check.
+  - target:
+      kind: Deployment
+      name: source-controller
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: source-controller
+        namespace: flux-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: manager
+                securityContext:
+                  runAsGroup: 65534
+  - target:
+      kind: Deployment
+      name: kustomize-controller
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: kustomize-controller
+        namespace: flux-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: manager
+                securityContext:
+                  runAsGroup: 65534
+  - target:
+      kind: Deployment
+      name: helm-controller
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: helm-controller
+        namespace: flux-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: manager
+                securityContext:
+                  runAsGroup: 65534
+  - target:
+      kind: Deployment
+      name: notification-controller
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: notification-controller
+        namespace: flux-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: manager
+                securityContext:
+                  runAsGroup: 65534

@@ -163,3 +163,23 @@ spec:
     # Suppress info-level agent logs. Valid levels: debug, info, warning, error.
     logging:
       level: "warning"
+  postRenderers:
+    - kustomize:
+        patches:
+          # cilium-envoy's ServiceAccount (cilium-envoy) has zero RoleBindings —
+          # it receives its xDS config from the local Cilium agent over a Unix
+          # socket, not the Kubernetes API — so the mounted token is unused.
+          # The chart has no values toggle for this DaemonSet's automount
+          # setting, hence the postRenderer patch instead of a values change.
+          - target:
+              kind: DaemonSet
+              name: cilium-envoy
+            patch: |-
+              apiVersion: apps/v1
+              kind: DaemonSet
+              metadata:
+                name: cilium-envoy
+              spec:
+                template:
+                  spec:
+                    automountServiceAccountToken: false
