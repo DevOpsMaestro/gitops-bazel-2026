@@ -46,6 +46,11 @@ spec:
       enabled: true
       alertmanagerSpec:
         logLevel: warn
+        # Alertmanager routes/silences alerts from its own config and storage —
+        # it never watches the Kubernetes API. Its ServiceAccount has zero
+        # RoleBindings/ClusterRoleBindings (confirmed via kubectl), so the
+        # mounted token grants no actual access.
+        automountServiceAccountToken: false
         podMetadata:
           annotations:
             # The alertmanager-operated headless service and the ClusterIP service

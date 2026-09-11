@@ -191,6 +191,27 @@ spec:
               comps: [=]
               values:
                 - ["/usr/bin/prometheus"]
+  # The chart's falco DaemonSet template has no values toggle for
+  # automountServiceAccountToken (unlike falcosidekick's serviceAccount block).
+  # Falco's main eBPF agent gets pod/container metadata from the container
+  # runtime and cgroup paths, not the Kubernetes API — its ServiceAccount has
+  # zero RoleBindings/ClusterRoleBindings (confirmed via kubectl), so the
+  # mounted token grants no actual access.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: DaemonSet
+              name: falco-falco
+            patch: |-
+              apiVersion: apps/v1
+              kind: DaemonSet
+              metadata:
+                name: falco-falco
+              spec:
+                template:
+                  spec:
+                    automountServiceAccountToken: false
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
