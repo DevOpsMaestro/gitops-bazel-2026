@@ -23,7 +23,7 @@ fi
 printf '[2/5] Grafana API health... '
 kubectl port-forward -n observability svc/observability-grafana 19080:80 >/dev/null 2>&1 & PF_PID=$!
 TRIES=0; until nc -z localhost 19080 2>/dev/null || [ $TRIES -ge 10 ]; do sleep 1; TRIES=$((TRIES+1)); done
-if curl -sf --max-time 5 http://localhost:19080/api/health 2>/dev/null | grep -q '"database":"ok"'; then
+if curl -sf --max-time 5 http://localhost:19080/api/health 2>/dev/null | grep -qE '"database":[[:space:]]*"ok"'; then
   printf 'ok\n'; PASS=$((PASS+1))
 else
   printf 'FAIL\n'; FAIL=$((FAIL+1))
