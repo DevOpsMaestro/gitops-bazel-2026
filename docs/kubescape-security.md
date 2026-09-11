@@ -43,3 +43,31 @@ Kubescape flags workloads whose traffic is routed through an ingress controller 
 - Access to Grafana and Prometheus is restricted to the developer's local machine by the KinD port-mapping configuration.
 
 **Acceptable mitigation:** The cluster topology (KinD with `extraPortMappings` bound to localhost) prevents any external network exposure. A `ClusterSecurityException` CR may be introduced to suppress this finding in automated scans once the exception API is confirmed stable for the deployed version of the Kubescape operator.
+
+---
+
+## Accepted Findings — 2026-09-11
+
+### Finding 3: Applications Credentials in Configuration Files — False Positives
+
+**Control:** C-0012 — Applications credentials in configuration files
+**Framework:** NSA / MITRE
+**Affected resources:** `ConfigMap/cluster-info` (namespace `kube-public`), `ConfigMap/cilium-config` (namespace `kube-system`), `ConfigMap/trivy-operator-config` (namespace `trivy-system`), `ConfigMap/observability-grafana` (namespace `observability`)
+**Severity:** High
+
+**Description:**
+C-0012 scans ConfigMap data for keyword patterns associated with embedded credentials (e.g. `password`, `secret`, `token`, `key`). All four resources below were manually inspected and confirmed to contain no real credential material — each is a keyword match on a field name or a standard Kubernetes object, not an actual secret value.
+
+**Per-resource rationale:**
+
+- **`kube-public/cluster-info`** — a standard Kubernetes bootstrap-discovery ConfigMap, present on every kubeadm- or KinD-created cluster. It contains the cluster's public CA certificate and a JWS-signed kubeconfig snippet used for node bootstrap discovery (`jws-kubeconfig-*`). The `kube-public` namespace is intentionally world-readable by Kubernetes design; the actual bootstrap token secret lives in a separate `Secret` object, not here.
+- **`kube-system/cilium-config`** — flagged on `hubble-tls-key-file: /var/lib/cilium/tls/hubble/server.key`. This is a *file path* telling Cilium where to find its TLS key on disk, not the key material itself. The real key is mounted from a Kubernetes `Secret`.
+- **`trivy-system/trivy-operator-config`** — flagged on environment variable *names* such as `OPERATOR_EXPOSED_SECRET_SCANNER_ENABLED` (a feature flag controlling whether Trivy's own secret-scanner is active) and `OPERATOR_PRIVATE_REGISTRY_SCAN_SECRETS_NAMES` (an empty `{}` map — no registry credential names configured).
+- **`observability/observability-grafana`** — flagged on `public_key_retrieval_disabled`, a Grafana configuration flag name that happens to contain the substring "key." No actual key or credential value is present.
+
+**Rationale for acceptance:**
+- Each finding was verified by retrieving the live ConfigMap (`kubectl get cm <name> -n <namespace> -o yaml`) and inspecting every matched field directly — none contain credential values.
+- Three of the four (`cluster-info`, `cilium-config`, `trivy-operator-config`) are generated entirely by upstream Kubernetes or Helm chart defaults; this repo does not author their content.
+- Real secrets in this repo (Grafana admin credentials, BOINC project credentials) are stored as SOPS-encrypted Kubernetes `Secret` objects — see [SOPS + Age Secrets](sops-age-secrets.md) — never as ConfigMap data.
+
+**Acceptable mitigation:** No remediation needed — there is no credential to remove. A `ClusterSecurityException` CR may be introduced to suppress this finding in automated scans once the exception API is confirmed stable for the deployed version of the Kubescape operator.
