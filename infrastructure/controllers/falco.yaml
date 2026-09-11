@@ -119,6 +119,15 @@ spec:
       enabled: true
       # Single replica — KinD resource optimisation. Scale to 2+ for HA in production.
       replicaCount: 1
+      # Falcosidekick is a plain Go webhook forwarder (Falco alerts -> Loki), not
+      # a kernel/eBPF component like the rest of Falco — it needs no elevated
+      # privileges. The chart's own securityContext default is empty, which
+      # leaves allowPrivilegeEscalation at Kubernetes' implicit default (true).
+      # podSecurityContext already runs it as uid/gid 1234 by chart default.
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
       config:
         loki:
           hostport: "http://observability-loki.observability.svc.cluster.local:3100"
