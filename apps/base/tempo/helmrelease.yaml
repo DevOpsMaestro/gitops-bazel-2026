@@ -46,6 +46,13 @@ spec:
     podLabels:
       sidecar.istio.io/inject: "false"
 
+    # Tempo runs single-binary with inmemory ring/ingester state (see tempo.ingester
+    # below) — it never watches the Kubernetes API. Its ServiceAccount has zero
+    # RoleBindings/ClusterRoleBindings (confirmed via kubectl), so the mounted
+    # token grants no actual access; disabling it removes an unused artifact.
+    serviceAccount:
+      automountServiceAccountToken: false
+
     persistence:
       enabled: true
       storageClassName: openebs-hostpath
