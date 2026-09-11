@@ -9,7 +9,7 @@ for dir in \
     infrastructure/controllers \
     apps/base/prometheus apps/base/grafana apps/base/loki apps/base/promtail \
     apps/base/tempo apps/base/opentelemetry apps/base/kyverno apps/base/demo \
-    apps/base/notifications apps/base/istio apps/base/envoy-gateway \
+    apps/base/notifications apps/base/istio apps/base/boinc \
     apps/overlays/kind clusters/kind; do
   printf '  kustomize build %s\n' "$dir"
   kustomize build "$dir" > /dev/null
