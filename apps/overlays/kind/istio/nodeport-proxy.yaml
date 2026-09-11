@@ -125,6 +125,8 @@ spec:
             runAsNonRoot: true
             runAsUser: 101   # nginx uid in the alpine image
             runAsGroup: 101
+            seccompProfile:
+              type: RuntimeDefault
             capabilities:
               drop: [ALL]
           volumeMounts:

@@ -59,6 +59,24 @@ spec:
       size: 10Gi
 
     tempo:
+      # Container-level securityContext for the main tempo container — NOTE this
+      # must live under `tempo.securityContext`, not a top-level `securityContext:`
+      # key (same pitfall as `tempo.resources` below; confirmed via the chart's
+      # statefulset.yaml template, which reads `.Values.tempo.securityContext`
+      # for the container and reserves top-level `.Values.securityContext` for
+      # the pod spec, which the chart already sets to uid/gid 10001 by default).
+      # Verified read-only rootfs doesn't break tempo: ran the image locally
+      # with --read-only --cap-drop=ALL as uid 10001 and it started cleanly with
+      # no filesystem/permission errors (all writes go through the mounted PVC
+      # at /var/tempo, unaffected by the root filesystem restriction).
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+        capabilities:
+          drop: [ALL]
+
       # NOTE: this must live under `tempo.resources`, not a top-level `resources:`
       # key — the chart's statefulset template only reads `.Values.tempo.resources`
       # for the main container. A top-level `resources:` block renders as `{}`
